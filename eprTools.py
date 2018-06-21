@@ -67,6 +67,8 @@ def eprload(file, preprocess = False, k=0):
         data1 = DTA_data[::2]
         data2 = DTA_data[1::2]
         DTA_data = np.array([xdata, data1, data2])
+        DTA_data[1] = data[1] / data[1].max()
+        DTA_data[2] = (data[2] / data[2].max()) - 0.5
     else:
         DTA_data = np.array([xdata, DTA_data])
 
