@@ -155,3 +155,166 @@ def abs_half_moment(spc):
             M = M + (abs(xdata[x] - x_bar) * y) * (xdata[x] - xdata[x -1])
     return M
 
+####DEER Tools
+
+def fit_pase(data):
+    
+    from scipy.optimize import minimize
+    
+    time = data[0]
+    
+    #Make complex array for phase adjustment
+    cData = data[1] + 1j*data[2]
+    
+    #Normalize real and imaginary data
+    real = data[1] / data[1].max()
+    imaginary = (data[2] / data[2].max()) - 0.5
+    
+    phi0 = 0.5 #np.arctan2(imaginary[-1], real[-1])
+    
+    fitset = cData[int(round(len(cData)/8)):]
+    
+    def get_iphase(phi):
+        updated = np.imag(fitset * np.exp(1j* phi))
+        return np.dot(updated, updated)
+    
+    phi = minimize(get_iphase, phi0, method='nelder-mead', options={'xtol': 1e-8, 'disp': True})
+    print(phi0)
+    print(np.rad2deg(phi.x))
+    
+    
+    cData = cData * np.exp(1j * phi.x)
+    
+    real = np.real(cData)
+    imaginary = np.imag(cData)
+    if real[0] < real[-1]:
+        real = -1* real
+        imaginary = -1* imaginary
+    return np.array([time, real, imaginary])
+
+def fit_zero_time(data):
+    
+    from scipy.interpolate import interp1d
+    from scipy.stats import moment
+    
+    def moment_about_zero(data2):
+        thing = int(len(data2)/2)
+        
+        thing = range(-thing,thing+1)
+        
+        summ = 0
+        for index, value in enumerate(data2):
+            summ = summ + thing[index] * value
+        return summ
+        
+        
+    time = data[0]
+    real = data[1]
+    
+    #interpolate data to get a point for each ns
+    f = interp1d(time,real, 'cubic')
+    time_interp = np.arange(int(time.min()), int(time.max())) 
+    real_interp =  f(time_interp)
+    
+    #Take first moment of all windows tx(tmax)/2  and find minimum
+    tmax = real_interp.argmax()
+    
+    half_tmax = int(tmax/2)    
+    low_moment = moment_about_zero(real_interp[tmax -half_tmax:tmax + half_tmax + 1 ])
+    tmaxnew = tmax
+    for i in range(half_tmax, 500):
+        try_moment = moment_about_zero(real_interp[i - half_tmax: i + half_tmax + 1])
+        if abs(try_moment) < abs(low_moment):
+            lowest_moment = try_moment
+            tmax = i
+    
+    time_interp = time_interp - time_interp[tmax]
+    data = np.array([time_interp[tmax:],real_interp[tmax:]])
+    
+    return data
+
+##Background adjustments
+def subtract_background(data):
+    from scipy.optimize import curve_fit
+    
+    time = data[0]
+    real = data[1]
+    
+    fit_time = time[int(len(real)/4):] 
+    fit_data = real[int(len(real)/4):] 
+    
+    def homogeneous_3d(t, a, k):
+        k = k/1000000000
+        return a * np.exp(-k * t)
+    
+    popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_data)
+    
+    print(popt)
+    plt.plot(time, homogeneous_3d(time, *popt))
+    plt.plot(time, real)
+    plt.show()
+    
+    #Adjust for background
+    real = real - homogeneous_3d(time, *popt) + popt[0]
+    
+    return np.array([time, real])
+
+def fit_Probability(data):
+    VecDem = 512
+    from scipy.special import fresnel
+    t = np.arange(0.000001,len(data[0]), len(data[0])/VecDem)
+    r = np.arange(1, 100, 99/VecDem)
+
+    L = np.zeros((VecDem-1, VecDem))
+    spots = np.arange(VecDem -1)
+    L[spots, spots] = - 1
+    L[spots, spots + 1] = 1
+
+    omega_dd = (2 * np.pi * 52.04) / (r ** 3)
+    z = np.sqrt((6 * np.outer(t, omega_dd)/np.pi))
+    S_z, C_z = fresnel(z)
+    SzNorm = S_z / z
+    CzNorm = C_z/z
+
+    trigterm = np.outer(t, omega_dd)
+    costerm = np.cos(trigterm)
+    sinterm = np.sin(trigterm)
+    K = CzNorm * costerm + SzNorm * sinterm
+
+    from scipy.interpolate import interp1d
+    f = interp1d(data[0], data[1])
+    newx = t 
+    data_512 = f(newx)
+    
+    alpha = 25
+
+    from sklearn.linear_model.base import LinearModel
+    X, y, X_offset, y_offset, X_scale = LinearModel._preprocess_data(
+        K, data_512, True, False, True,
+        sample_weight=None)
+    
+    #NNLS Regression on Tikhonov equation
+    C = np.concatenate([X, alpha * L])
+    d = np.concatenate([y, np.zeros(shape=VecDem-1)])
+    from scipy.optimize import nnls
+    P = nnls(C, d)
+    
+    #Plot distribution and fit to V(t)
+    fit = K.dot(P[0]) + (1 - K.dot(P[0]).max() )
+    plt.plot(r, P[0])
+    plt.show()
+
+    plt.plot(data_512)
+    plt.plot(fit)
+    
+    return np.array((r, P[0])), fit
+ 
+
+
+##Utility functions
+def change_phase(data, phi):
+    cData = data[1] + 1j*data[2]
+    phi = phi % (2*np.pi)
+    updated = data * np.exp(1j * phi)
+    rval = np.array([data[0], np.real(updated), np.imag(updated)])
+    return updated
