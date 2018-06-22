@@ -262,15 +262,17 @@ def subtract_background(data):
     return np.array([time, real])
 
 def fit_Probability(data, VecDem = 252):
+    VecDem = 200
     from scipy.special import fresnel
     t = np.arange(0.000001,len(data[0]), len(data[0])/VecDem)
     r = np.arange(1, 100, 99/VecDem)
 
-    L = np.zeros((VecDem-1, VecDem))
-    spots = np.arange(VecDem -1)
-    L[spots, spots] = - 1
-    L[spots, spots + 1] = 1
-
+    L = np.zeros((VecDem-2, VecDem))
+    spots = np.arange(VecDem -2)
+    L[spots, spots] = 1
+    L[spots, spots + 1] = -2
+    L[spots, spots + 2] = 1
+    
     omega_dd = (2 * np.pi * 52.04) / (r ** 3)
     z = np.sqrt((6 * np.outer(t, omega_dd)/np.pi))
     S_z, C_z = fresnel(z)
@@ -287,32 +289,32 @@ def fit_Probability(data, VecDem = 252):
     newx = t 
     data_512 = f(newx)
     
-    alpha = 25
 
     from sklearn.linear_model.base import LinearModel
     X, y, X_offset, y_offset, X_scale = LinearModel._preprocess_data(
         K, data_512, True, False, True,
         sample_weight=None)
     
+        
     ####Add alpha selection algorithm ###
      
     from scipy.optimize import nnls
     def get_P_fit(X, y, alpha):
         #NNLS Regression on Tikhonov equation
         C = np.concatenate([X, alpha * L])
-        d = np.concatenate([y, np.zeros(shape=VecDem-1)])
+        d = np.concatenate([y, np.zeros(shape=VecDem-2)])
         
         P = nnls(C, d)
     
         #Plot distribution and fit to V(t)
-        fit = K.dot(P[0]) + (1 - K.dot(P[0]).max())
+        fit = X.dot(P[0]) + y_offset
         return P, fit
 
     def get_AIC_score(alpha):
         P, fit = get_P_fit(X, y, alpha)
-        K_alpha = np.linalg.inv(K.T.dot(K) + (alpha**2)* L.T.dot(L)).dot(K.T)
-        H_alpha = K.dot(K_alpha) 
-        nt = VecDem / 10 
+        K_alpha = np.linalg.inv(X.T.dot(X) + (alpha**2)* L.T.dot(L)).dot(X.T)
+        H_alpha = X.dot(K_alpha) 
+        nt = VecDem
         score = nt * np.log((np.linalg.norm((y + y_offset) - fit)**2)/ nt) + (2 * np.trace(H_alpha))
         
         return score
@@ -328,8 +330,8 @@ def fit_Probability(data, VecDem = 252):
     plt.plot(r, P[0])
     plt.show()
 
-    plt.plot(data_512)
-    plt.plot(fit)
+    plt.scatter(t, y + y_offset, s = 0.5)
+    plt.plot(t, fit, c = 'r')
     
     return np.array((r, P[0])), fit
     
