@@ -67,8 +67,8 @@ def eprload(file, preprocess = False, k=0):
         data1 = DTA_data[::2]
         data2 = DTA_data[1::2]
         DTA_data = np.array([xdata, data1, data2])
-        DTA_data[1] = data[1] / data[1].max()
-        DTA_data[2] = (data[2] / data[2].max()) - 0.5
+        DTA_data[1] = DTA_data[1] / DTA_data[1].max()
+        DTA_data[2] = (DTA_data[2] / DTA_data[2].max()) - 0.5
     else:
         DTA_data = np.array([xdata, DTA_data])
 
@@ -261,8 +261,7 @@ def subtract_background(data):
     
     return np.array([time, real])
 
-def fit_Probability(data):
-    VecDem = 512
+def fit_Probability(data, VecDem = 252):
     from scipy.special import fresnel
     t = np.arange(0.000001,len(data[0]), len(data[0])/VecDem)
     r = np.arange(1, 100, 99/VecDem)
@@ -295,14 +294,37 @@ def fit_Probability(data):
         K, data_512, True, False, True,
         sample_weight=None)
     
-    #NNLS Regression on Tikhonov equation
-    C = np.concatenate([X, alpha * L])
-    d = np.concatenate([y, np.zeros(shape=VecDem-1)])
+    ####Add alpha selection algorithm ###
+     
     from scipy.optimize import nnls
-    P = nnls(C, d)
+    def get_P_fit(X, y, alpha):
+        #NNLS Regression on Tikhonov equation
+        C = np.concatenate([X, alpha * L])
+        d = np.concatenate([y, np.zeros(shape=VecDem-1)])
+        
+        P = nnls(C, d)
     
-    #Plot distribution and fit to V(t)
-    fit = K.dot(P[0]) + (1 - K.dot(P[0]).max() )
+        #Plot distribution and fit to V(t)
+        fit = K.dot(P[0]) + (1 - K.dot(P[0]).max())
+        return P, fit
+
+    def get_AIC_score(alpha):
+        P, fit = get_P_fit(X, y, alpha)
+        K_alpha = np.linalg.inv(K.T.dot(K) + (alpha**2)* L.T.dot(L)).dot(K.T)
+        H_alpha = K.dot(K_alpha) 
+        nt = VecDem / 10 
+        score = nt * np.log((np.linalg.norm((y + y_offset) - fit)**2)/ nt) + (2 * np.trace(H_alpha))
+        
+        return score
+    
+    from scipy.optimize import minimize
+    res = minimize(get_AIC_score, 1, bounds = ((1e-3, 1e3),))
+    
+    lowalpha = res.x
+    print(res.x)
+                             
+    P, fit = get_P_fit(X, y, lowalpha)
+    
     plt.plot(r, P[0])
     plt.show()
 
@@ -310,6 +332,7 @@ def fit_Probability(data):
     plt.plot(fit)
     
     return np.array((r, P[0])), fit
+    
  
 
 
