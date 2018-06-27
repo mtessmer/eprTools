@@ -190,9 +190,11 @@ class DEER_Spec:
         
         self.bkgrnd = homogeneous_3d(self.time, *popt)
         self.bkgrnd_k = popt[1]
-        self.dipolar_evolution = self.real - homogeneous_3d(self.time, *popt) + 1
+        self.dipolar_evolution = self.real - homogeneous_3d(self.time, *popt) + (popt[0] * np.exp(popt[2]))
             
     def get_fit(self, alpha=None):
+        ##Normalize data
+
         
         #Compute Kernel
         omega_dd = (2 * np.pi * 52.04) / (self.r ** 3)
