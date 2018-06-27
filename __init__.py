@@ -1,1 +1,2 @@
-from .eprTools import *
+from .CW import *
+from .DEER import *
