@@ -4,30 +4,57 @@ from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
+import numba
+from time import time
+
 
 class DEER_Spec:
     
-    def __init__(self, time, yreal, yimag):
+    def __init__(self, time, yreal, yimag, rmin, rmax):
+
+        #Working values
         self.time = time
-        self.real = yreal #yreal / yreal.max()
-        self.imag = yimag #(yimag / yimag.max()) - 0.5
-        self.bkgrnd = None
-        self.bkgrnd_k = None
-        self.dipolar_evolution = None
-        self.P = None
-        self.kernel_len = 200
-        self.fit_time = None 
-        self.r = np.linspace(1, 100, self.kernel_len)
+        self.real = yreal
+        self.imag = yimag 
+
+        #Tikhonov fit results
         self.fit = None
         self.alpha = None
+        self.P = None
+        self.fit_time = None 
+        
+        # Kernel perameteres 
+        self.rmin = rmin
+        self.rmax = rmax
+        self.kernel_len = 200
+        self.r = np.linspace(rmin, rmax, self.kernel_len)
+        
+        # Default trimming parameters
+        self.trim_length = None
+        self.zt = None
 
-        ##Raw Data Untouched
+        # Default background correction parameters
+        self.bkgrnd_kind ='3D'
+        self.bkgrnd_k = 1
+        self.bkgrnd_fit_t = None
+
+        # Background correction results
+        self.dipolar_evolution = None
+        self.bkgrnd = None
+        self.bkgrnd_param = None
+
+        #Raw Data Untouched
         self.raw_time = time 
         self.raw_real = yreal
         self.raw_imag = yimag
-    
+
+
+        self.update(K_update = True)
+
+
+
     @classmethod
-    def from_file(cls, filename):
+    def from_file(cls, filename, rmin = 1, rmax = 100):
         d = {}
         ydata = []
         with open(filename, 'rb') as f:
@@ -65,40 +92,113 @@ class DEER_Spec:
         yreal = ydata[::2]
         yimag = ydata[1::2]
         
-        return cls(xdata, yreal, yimag)
-        
-    ##Processing methods
+        return cls(xdata, yreal, yimag, rmin, rmax)
+
+    def update(self, K_update = False):
+        self.trim()
+        self.zero_time()
+        self.phase()
+        self.correct_background()
+        if K_update:
+            self.compute_kernel()
+
     def set_kernel_len(self, length):
         self.kernel_len = length
-        self.r = np.linspace(1, 100, self.kernel_len)
+        self.r = np.linspace(self.rmin, self.rmax, self.kernel_len)
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
+        self.update(K_update = True)
+
+    def set_kernel_r(self, rmin = 0, rmax = 100):
+        self.r = np.linspace(rmin, rmax, self.kernel_len)
+        self.update(K_update = True)
+
+    def set_trim(self, trim = None):
+        self.trim_length = trim
+        self.update(K_update = True)
+
+    def set_zero_time(self, zt = None):
+        self.zt = zt;
+        self.update()
+
+    def set_background_correction(self, kind='3d', k=1, fit_time = None):
+        self.bkgrnd_kind =kind
+        self.bkgrnd_k = k
+        self.bkgrnd_fit_t = fit_time
+        self.update()
+
+    def compute_kernel(self):
+
+        #Compute Kernel
+        omega_dd = (2 * np.pi * 52.04) / (self.r ** 3)
+        z = np.sqrt((6 * np.outer(self.fit_time, omega_dd)/np.pi))
+        S_z, C_z = fresnel(z)
+        SzNorm = S_z / z
+        CzNorm = C_z / z
+
+        trigterm = np.outer(self.fit_time, omega_dd)
+        costerm = np.cos(trigterm)
+        sinterm = np.sin(trigterm)
+        K = CzNorm * costerm + SzNorm * sinterm
+        
+        #Define L matrix 
+        L = np.zeros((self.kernel_len - 2, self.kernel_len))
+        spots = np.arange(self.kernel_len - 2)
+        L[spots, spots] = 1
+        L[spots, spots + 1] = - 2
+        L[spots, spots + 2] = 1
+
+        #Compress Data to kernel dimensions
+        f = interp1d(self.time, self.dipolar_evolution)
+        kData = f(self.fit_time)
+        
+        #Preprocess kernel and data for nnls fitting
+        self.K, self.y, X_offset, self.y_offset, X_scale = LinearModel._preprocess_data(
+        K, kData, True, False, True, sample_weight=None)
+        self.L = L
 
     def trim(self):
-        #take last quarter of data
-        start = -int(len(self.real)/3)
-        window = 11
+        self.real = self.raw_real
+        self.imag = self.raw_imag
+        self.time = self.raw_time
 
-        #get minimum std
-        min_std = self.real[-window:].std()
-        min_i = -window
-        for i in range(start, -window):
-            test_std = self.real[i:i+window].std()
-            if test_std < min_std:
-                min_std = test_std
-                min_i = i
+        if not self.trim_length:
 
-        max_std =  3 * min_std
-        cutoff = len(self.real)
+            #take last quarter of data
+            start = -int(len(self.real)/3)
+            window = 11
+
+            #get minimum std
+            min_std = self.real[-window:].std()
+            min_i = -window
+            for i in range(start, -window):
+                test_std = self.real[i:i+window].std()
+                if test_std < min_std:
+                    min_std = test_std
+                    min_i = i
+
+            max_std =  3 * min_std
+            cutoff = len(self.real)
+            
+            for i in range(start, - window):
+                test_std = self.real[i:i+window].std()
+                if (test_std > max_std) & (i > min_i):
+                    cutoff = i
+                    break
+
+        elif self.trim_length:
+            cutoff = self.trim_length
+            freal = interp1d(self.time, self.real, 'cubic')
+            fimag = interp1d(self.time, self.imag, 'cubic')
         
-        for i in range(start, - window):
-            test_std = self.real[i:i+window].std()
-            if (test_std > max_std) & (i > min_i):
-                cutoff = i
-                break
+            self.time = np.arange(self.time.min(), self.time.max())
+            self.real = freal(self.time)
+            self.imag = fimag(self.time)
+
 
         self.time = self.time[:cutoff] 
         self.real = self.real[:cutoff]
         self.imag = self.imag[:cutoff]
+
         
     def phase(self):
         #Make complex array for phase adjustment
@@ -138,6 +238,8 @@ class DEER_Spec:
             
             return np.dot(data, xData)
         
+        
+
         #Interpolate data
         freal = interp1d(self.time, self.real, 'cubic')
         fimag = interp1d(self.time, self.imag, 'cubic')
@@ -145,26 +247,31 @@ class DEER_Spec:
         self.time = np.arange(self.time.min(), self.time.max())
         self.real = freal(self.time)
         self.imag = fimag(self.time)
-        
-        #Take zero_moment of all windows tx(tmax)/2 and find minimum
-        tmax = self.real.argmax()
-        half_tmax = int(tmax/2)
-        
-        lFrame = tmax - half_tmax
-        uFrame = tmax + half_tmax + 1
-        low_moment = zero_moment(self.real[lFrame : uFrame])
-        
-        #Only look in first 500ns of data
-        for i in range(half_tmax, 500):
-            lFrame = i - half_tmax
-            uFrame = i + half_tmax + 1
+    
+        if not self.zt: 
+            #Take zero_moment of all windows tx(tmax)/2 and find minimum
+            tmax = self.real.argmax()
+            half_tmax = int(tmax/2)
             
-            test_moment = zero_moment(self.real[lFrame : uFrame])
+            lFrame = tmax - half_tmax
+            uFrame = tmax + half_tmax + 1
+            low_moment = zero_moment(self.real[lFrame : uFrame])
             
-            if abs(test_moment) < abs(low_moment):
-                low_moment = test_moment
-                tmax = i
+            #Only look in first 500ns of data
+            for i in range(half_tmax, 500):
+                lFrame = i - half_tmax
+                uFrame = i + half_tmax + 1
+                
+                test_moment = zero_moment(self.real[lFrame : uFrame])
+                
+                if abs(test_moment) < abs(low_moment):
+                    low_moment = test_moment
+                    tmax = i
         
+        else:
+            tmax = self.zt
+
+
         #Adjust time to appropriate zero
         self.time = self.time - self.time[tmax]
         
@@ -175,81 +282,63 @@ class DEER_Spec:
         
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         
-    def correct_background(self):
+    def correct_background(self): 
 
-        ##TODO Add options for polynomial background fit
-        
+        #calculate t0 for fit_t if none given
+        if not self.bkgrnd_fit_t:
+            self.bkgrnd_fit_t = (int(len(self.time)/4))
+
+
         #Use last 3/4 of data to fit background
-        fit_time = self.time[(int(len(self.time)/4)):]
-        fit_real = self.real[(int(len(self.real)/4)):]
-                              
-        def homogeneous_3d(t, a, k, j):
-            return a * np.exp(-k * t + j)
+        fit_time = self.time[self.bkgrnd_fit_t:]
+        fit_real = self.real[self.bkgrnd_fit_t:]
         
-        popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0 = (1, 1e-5, 1e-2) )
+        if self.bkgrnd_kind == '3D':
+            def homogeneous_3d(t, a, k, j):
+                return a * np.exp(-k * t + j)
+
+            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0 = (1, 1e-5, 1e-2) )
         
-        self.bkgrnd = homogeneous_3d(self.time, *popt)
-        self.bkgrnd_k = popt[1]
-        self.dipolar_evolution = self.real - homogeneous_3d(self.time, *popt) + (popt[0] * np.exp(popt[2]))
-            
+            self.bkgrnd = homogeneous_3d(self.time, *popt)
+            self.bkgrnd_param = popt
+
+            self.dipolar_evolution = self.real - homogeneous_3d(self.time, *popt) + (popt[0] * np.exp(popt[2]))
+
+        elif self.bkgrnd_kind == 'poly':
+            popt = np.polyfit(fit_time, fit_real, k)
+            self.bkgrnd = np.polyval(popt, self.time)
+            self.bkgrnd_param = popt
+            self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
+    
     def get_fit(self, alpha=None):
-        ##Normalize data
-
         
-        #Compute Kernel
-        omega_dd = (2 * np.pi * 52.04) / (self.r ** 3)
-        z = np.sqrt((6 * np.outer(self.fit_time, omega_dd)/np.pi))
-        S_z, C_z = fresnel(z)
-        SzNorm = S_z / z
-        CzNorm = C_z/z
-
-        trigterm = np.outer(self.fit_time, omega_dd)
-        costerm = np.cos(trigterm)
-        sinterm = np.sin(trigterm)
-        K = CzNorm * costerm + SzNorm * sinterm
-        
-        #Define L matrix 
-        L = np.zeros((self.kernel_len - 2, self.kernel_len))
-        spots = np.arange(self.kernel_len - 2)
-        L[spots, spots] = 1
-        L[spots, spots + 1] = - 2
-        L[spots, spots + 2] = 1
-        
-        #Compress Data to kernel dimensions
-        f = interp1d(self.time, self.dipolar_evolution)
-        kData = f(self.fit_time)
-        
-        #Preprocess kernel and data for nnls fitting
-        X, y, X_offset, y_offset, X_scale = LinearModel._preprocess_data(
-        K, kData, True, False, True, sample_weight=None)
-        
-        def get_P(X, y, alpha):
-            C = np.concatenate([X, alpha * L])
-            d = np.concatenate([y, np.zeros(shape = self.kernel_len - 2)])
-            
-            P = nnls(C,d)
-            
-            temp_fit = X.dot(P[0]) + y_offset
-            return P, temp_fit
-        
-        def get_AIC_score(alpha):
-            P, temp_fit = get_P(X, y, alpha)
-
-            K_alpha = np.linalg.inv(X.T.dot(X) + (alpha**2)* L.T.dot(L)).dot(X.T)
-            H_alpha = X.dot(K_alpha) 
-
-            nt = self.kernel_len
-            score = nt * np.log((np.linalg.norm((y + y_offset) - temp_fit)**2)/ nt) + (2 * np.trace(H_alpha))
-            
-            return score
         if alpha == None:
-            res = minimize(get_AIC_score, 1, bounds = ((1e-3,1e3),))
+            
+            res = minimize(self.get_AIC_score, 1, args = (self.K, self.y), bounds = ((1e-3,1e3),))
             self.alpha = res.x
+
         else:
             self.alpha = alpha
 
-        P, self.fit = get_P(X, y, self.alpha)
+        P, self.fit = self.get_P(self.K, self.y, self.alpha)
         self.P = P[0]
             
-            
+    def get_P(self, X, y, alpha):
+        C = np.concatenate([self.K, alpha * self.L])
+        d = np.concatenate([self.y, np.zeros(shape = self.kernel_len - 2)])
+
+        P = nnls(C,d)
+
+        temp_fit = X.dot(P[0]) + self.y_offset
+        return P, temp_fit
+    
+    def get_AIC_score(self, alpha, X, y):
+        P, temp_fit = self.get_P(X, y, alpha)
         
+        K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)).dot(self.K.T)
+        H_alpha = self.K.dot(K_alpha) 
+
+        nt = self.kernel_len
+        score = nt * np.log((np.linalg.norm((y + self.y_offset) - temp_fit)**2)/ nt) + (2 * np.trace(H_alpha))
+        
+        return score
