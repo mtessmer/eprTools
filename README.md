@@ -3,13 +3,13 @@
 eprTools is a package for interacting with, analyzing and polotting EPR data.
 The two main classes DEER_spec and CW_spec corresponding to Double Electron-Electron Resonance experiments and Continuous Wave experiments
 
-## Getting Started -- CW_Spec
+## Getting Started -- CW_spec
 
 ```python
 import matplotlib.pyplot as plt
-from eprTools import CW_Spec
+from eprTools import CW_spec
 
-mySpc = CW_Spec.from_file('Example_Apo.DTA', preprocess = True)
+mySpc = CW_spec.from_file('Example_Apo.DTA', preprocess = True)
 plt.plot(mySpc.field, mySpc.spec)
 plt.show()
 ```
@@ -18,9 +18,9 @@ plt.show()
 
 ```python
 import matplotlib.pyplot as plt
-from eprTools import DEER_Spec
+from eprTools import DEER_spec
 
-data = DEER_Spec.from_file('Example_DEER.DTA')
+data = DEER_spec.from_file('Example_DEER.DTA')
 data.set_kernel_len(500)
 
 data.get_fit()
