@@ -3,6 +3,13 @@
 eprTools is a package for interacting with, analyzing and polotting EPR data.
 The two main classes DEER_spec and CW_spec corresponding to Double Electron-Electron Resonance experiments and Continuous Wave experiments
 
+## Installation
+```bash
+git clone https://gitlab.com/mtessmer/eprTools.git 
+cd eprTools
+python setup.py install
+```
+
 ## Getting Started -- CW_spec
 
 ```python
