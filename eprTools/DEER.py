@@ -8,7 +8,7 @@ import numba
 from time import time
 
 
-class DEER_Spec:
+class DEER_spec:
     
     def __init__(self, time, yreal, yimag, rmin, rmax):
 
