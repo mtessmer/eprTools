@@ -74,7 +74,7 @@ class DEER_spec:
                                 line = line.split()
                                 try: 
                                     key = line[0]
-                                    val = list(map(str.strip, line[1:]))
+                                    val = [arg.strip() for arg in line[1:]]
                                 except IndexError:
                                     key = line
                                     val = None
