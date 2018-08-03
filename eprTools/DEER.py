@@ -5,6 +5,7 @@ from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
 import numba
+from eprTools.tntnn import tntnn
 from time import time
 
 
@@ -326,8 +327,11 @@ class DEER_spec:
     def get_P(self, X, y, alpha):
         C = np.concatenate([self.K, alpha * self.L])
         d = np.concatenate([self.y, np.zeros(shape = self.kernel_len - 2)])
-
-        P = nnls(C,d)
+        
+        if self.kernel_len > 350:
+            P = tntnn(C, d, use_AA = True)
+        else:
+            P = nnls(C,d)
 
         temp_fit = X.dot(P[0]) + self.y_offset
         return P, temp_fit
