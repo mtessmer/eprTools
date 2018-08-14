@@ -6,12 +6,13 @@ from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
 import numba
 from eprTools.tntnn import tntnn
+#from eprTools.nnlsbpp import nnlsm_blockpivot
 from time import time
 
 
 class DEER_spec:
     
-    def __init__(self, time, yreal, yimag, rmin, rmax):
+    def __init__(self, time, yreal, yimag, rmin, rmax, do_phase):
 
         #Working values
         self.time = time
@@ -30,7 +31,9 @@ class DEER_spec:
         self.kernel_len = 200
         self.r = np.linspace(rmin, rmax, self.kernel_len)
         
-        # Default trimming parameters
+        # Default phase and trimming parameters
+        self.phi = None
+        self.do_phase = do_phase
         self.trim_length = None
         self.zt = None
 
@@ -50,7 +53,7 @@ class DEER_spec:
         self.raw_imag = yimag
 
 
-        self.update(K_update = True)
+        self.update()
 
 
 
@@ -82,7 +85,11 @@ class DEER_spec:
                                 d[key] = val
                 except OSError:
                     print("Error: No parameter file found")
-                       
+        
+        do_phase = True
+        if d['PlsSPELLISTSlct'][0] == 'none':
+            do_phase = False
+
         xpoints = int(d['XPTS'][0])
         xmin = float(d['XMIN'][0]) 
         xwid = float(d['XWID'][0])
@@ -93,29 +100,44 @@ class DEER_spec:
         yreal = ydata[::2]
         yimag = ydata[1::2]
         
-        return cls(xdata, yreal, yimag, rmin, rmax)
+        return cls(xdata, yreal, yimag, rmin, rmax, do_phase)
 
-    def update(self, K_update = False):
+    def update(self):
+
         self.trim()
         self.zero_time()
-        self.phase()
+
+        if self.do_phase:
+            self.phase()
+
         self.correct_background()
-        if K_update:
-            self.compute_kernel()
+        self.compute_kernel()
+
 
     def set_kernel_len(self, length):
         self.kernel_len = length
         self.r = np.linspace(self.rmin, self.rmax, self.kernel_len)
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
-        self.update(K_update = True)
+        self.update()
 
     def set_kernel_r(self, rmin = 0, rmax = 100):
         self.r = np.linspace(rmin, rmax, self.kernel_len)
-        self.update(K_update = True)
+        self.update()
+
+    def set_phase(self, phi = 0, degrees = True):
+        
+        if degrees == False:
+            self.phi = phi
+        elif degrees == True:
+            self.phi = phi * np.pi / 180.0
+
+
+        self.update()
+
 
     def set_trim(self, trim = None):
         self.trim_length = trim
-        self.update(K_update = True)
+        self.update()
 
     def set_zero_time(self, zt = None):
         self.zt = zt;
@@ -162,6 +184,14 @@ class DEER_spec:
         self.imag = self.raw_imag
         self.time = self.raw_time
 
+        #normalize working values
+        if min(self.real < 0):
+            self.real = self.real - 2 * min(self.real)
+
+            self.imag = self.imag/max(self.real)
+            self.real = self.real/max(self.real)
+
+
         if not self.trim_length:
 
             #take last quarter of data
@@ -202,29 +232,34 @@ class DEER_spec:
 
         
     def phase(self):
+
+
         #Make complex array for phase adjustment
         cData = self.real + 1j*self.imag
         
-        #Initial guess for phase shift
-        phi0 = np.arctan2(self.imag[-1], self.real[-1])
-        
-        #Use last 7/8ths of data to fit phase
-        fit_set = cData[int(round(len(cData)/8)):]
-        
-        def get_imag_norm_squared(phi):
-            temp = np.imag(fit_set * np.exp(1j * phi))
-            return np.dot(temp, temp)
-        
-        #Find Phi that minimizes norm of imaginary data
-        phi = minimize(get_imag_norm_squared, phi0)
-        
-        temp = cData * np.exp(1j * phi.x)
-        
-        #Test for 180 degree inversion of real data
-        if np.real(temp).sum() < 0:
-            phi = phi.x + np.pi
-        
-        cData = cData * np.exp(1j * phi.x)
+        if self.phi == None:
+            #Initial guess for phase shift
+            phi0 = np.arctan2(self.imag[-1], self.real[-1])
+            
+            #Use last 7/8ths of data to fit phase
+            fit_set = cData[int(round(len(cData)/8)):]
+            
+            def get_imag_norm_squared(phi):
+                temp = np.imag(fit_set * np.exp(1j * phi))
+                return np.dot(temp, temp)
+            
+            #Find Phi that minimizes norm of imaginary data
+            phi = minimize(get_imag_norm_squared, phi0)
+            phi = phi.x
+            temp = cData * np.exp(1j * phi)
+            
+            #Test for 180 degree inversion of real data
+            if np.real(temp).sum() < 0:
+                phi = phi + np.pi
+
+            self.phi = phi
+
+        cData = cData * np.exp(1j * self.phi)
         self.real = np.real(cData)/np.real(cData).max() 
         self.imag = np.imag(cData)/np.real(cData).max()
     
@@ -283,8 +318,8 @@ class DEER_spec:
         
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         
-    def correct_background(self): 
-
+    def correct_background(self):        
+        
         #calculate t0 for fit_t if none given
         if not self.bkgrnd_fit_t:
             self.bkgrnd_fit_t = (int(len(self.time)/4))
@@ -293,10 +328,15 @@ class DEER_spec:
         #Use last 3/4 of data to fit background
         fit_time = self.time[self.bkgrnd_fit_t:]
         fit_real = self.real[self.bkgrnd_fit_t:]
-        
-        if self.bkgrnd_kind == '3D':
+
+        if self.bkgrnd_kind in ['3D', '2D'] :
+            if self.bkgrnd_kind == '2D':
+                d = 2
+            elif self.bkgrnd_kind =='3D':
+                d = 3
+
             def homogeneous_3d(t, a, k, j):
-                return a * np.exp(-k * t + j)
+                return a * np.exp(-k * (t ** (d/3)) + j)
 
             popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0 = (1, 1e-5, 1e-2) )
         
@@ -306,7 +346,8 @@ class DEER_spec:
             self.dipolar_evolution = self.real - homogeneous_3d(self.time, *popt) + (popt[0] * np.exp(popt[2]))
 
         elif self.bkgrnd_kind == 'poly':
-            popt = np.polyfit(fit_time, fit_real, k)
+
+            popt = np.polyfit(fit_time, fit_real, deg = self.bkgrnd_k)
             self.bkgrnd = np.polyval(popt, self.time)
             self.bkgrnd_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
@@ -322,7 +363,7 @@ class DEER_spec:
             self.alpha = alpha
 
         P, self.fit = self.get_P(self.K, self.y, self.alpha)
-        self.P = P[0]
+        self.P = P[0] / np.sum(P[0])
             
     def get_P(self, X, y, alpha):
         C = np.concatenate([self.K, alpha * self.L])
@@ -331,7 +372,12 @@ class DEER_spec:
         if self.kernel_len > 350:
             P = tntnn(C, d, use_AA = True)
         else:
+            #start = time()
+            #P = nnlsm_blockpivot(C,d)
+            #print('nnls_bpp:', time() - start)
+            #start = time()
             P = nnls(C,d)
+            #print('nnls:', time() - start)
 
         temp_fit = X.dot(P[0]) + self.y_offset
         return P, temp_fit
