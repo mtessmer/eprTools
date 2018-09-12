@@ -14,6 +14,7 @@ class CW_spec:
         self.spec = spec
         if preprocess:
             self.prep(k = k, ends = ends)
+            
     ##import methods
     @classmethod
     def from_file(cls, filename, preprocess = False, k = 0, ends = 50):
@@ -66,7 +67,7 @@ class CW_spec:
                     xdata = np.arange(xmin, xmax + deltaX, deltaX)
     
             elif filename[-3:] == 'csv':
-                ydata = np.genfromtxt(file, delimiter=',')
+                ydata = np.genfromtxt(f, delimiter=',')
                 
                 print("No X axis data, guessing = 3487g, sweepwidth 100g")
                 xwid = 100.0
@@ -107,8 +108,11 @@ class CW_spec:
             self.spec = self.spec - self.spec.mean()
         
     def normalize(self):
-        self.spec = self.spec / np.trapz(cumtrapz(self.spec, self.field, 
-                                                  initial=0), self.field)
+        first_integral = cumtrapz(self.spec, self.field, 
+                                                  initial=0)
+        first_integral = first_integral - min(first_integral)
+
+        self.spec = self.spec / np.trapz(first_integral, self.field)
         
     def center(self, center_field = 0):
         #Find the min and max of the spectra
