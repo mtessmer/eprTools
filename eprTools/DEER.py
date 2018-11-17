@@ -5,7 +5,7 @@ from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
-# from cvxopt import solvers, matrix
+import cvxopt as cvo
 # from eprTools.nnlsbpp import nnlsm_blockpivot
 # from time import time
 
@@ -348,10 +348,13 @@ class DEERSpec:
         else:
             self.alpha = alpha
 
-        P, self.fit = self.get_P(self.K, self.y, self.alpha)
-        self.P = P[0] / np.sum(P[0])
+        P, self.fit = self.get_P_cvex(self.alpha)
+        self.P = P / np.sum(P)
             
     def get_P(self, X, y, alpha):
+        X = self.K
+        alpha = self.alpha
+
         C = np.concatenate([self.K, alpha * self.L])
         d = np.concatenate([self.y, np.zeros(shape = self.kernel_len - 2)])
         
@@ -366,20 +369,34 @@ class DEERSpec:
             # print('nnls:', time() - start)
 
         temp_fit = X.dot(P[0]) + self.y_offset
-        return P, temp_fit
+        return P[0], temp_fit
 
-    def get_P_cvex(self, X, y, alpha):
+    def get_P_cvex(self, alpha):
+        # non-negative solution to get a non-negative P -- adapted from Stephan Rein's GloPel
         K = self.K
         L = self.L
+        points = len(K)
 
-        # get starting values for P
-        P = np.linalg.inv( (K.T.dot(K) + alpha * L.T.dot(L)) ).dot(K.T).dot(selt.y)
+        # Get initial matrices of optimization
+        preresult = (K.T.dot(K) + alpha * L.T.dot(L))
+
+        P = np.linalg.inv(preresult).dot(K.T).dot(self.y)
         P = P.clip(min = 0)
 
+        B = cvo.matrix(preresult)
+        A = cvo.matrix(-(K.T.dot(self.y.T)))
+
         # Minimize with CVXOPT constrained to > 0
+        lower_bound = cvo.matrix(np.zeros(points))
+        G = -cvo.matrix(np.eye(points, points))
+        cvo.solvers.options['show_progress'] = False
+        Z = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))['x']
+        Z = np.asarray(Z).reshape(points,)
+        temp_fit = K.dot(Z) + self.y_offset
+        return Z, temp_fit
 
     def get_AIC_score(self, alpha, X, y):
-        P, temp_fit = self.get_P(X, y, alpha)
+        P, temp_fit = self.get_P_cvex(alpha)
         
         K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)).dot(self.K.T)
         H_alpha = self.K.dot(K_alpha) 
