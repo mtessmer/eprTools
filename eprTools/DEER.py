@@ -5,27 +5,27 @@ from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
-#from cvxopt import solvers, matrix
-#from eprTools.nnlsbpp import nnlsm_blockpivot
-from time import time
+# from cvxopt import solvers, matrix
+# from eprTools.nnlsbpp import nnlsm_blockpivot
+# from time import time
 
 
-class DEER_spec:
+class DEERSpec:
     
     def __init__(self, time, yreal, yimag, rmin, rmax, do_phase):
 
-        #Working values
+        # Working values
         self.time = time
         self.real = yreal
         self.imag = yimag 
 
-        #Tikhonov fit results
+        # Tikhonov fit results
         self.fit = None
         self.alpha = None
         self.P = None
         self.fit_time = None 
         
-        # Kernel perameteres 
+        # Kernel parameters
         self.rmin = rmin
         self.rmax = rmax
         self.kernel_len = 200
@@ -38,7 +38,7 @@ class DEER_spec:
         self.zt = None
 
         # Default background correction parameters
-        self.bkgrnd_kind ='3D'
+        self.bkgrnd_kind = '3D'
         self.bkgrnd_k = 1
         self.bkgrnd_fit_t = None
 
@@ -47,15 +47,12 @@ class DEER_spec:
         self.bkgrnd = None
         self.bkgrnd_param = None
 
-        #Raw Data Untouched
+        # Raw Data Untouched
         self.raw_time = time 
         self.raw_real = yreal
         self.raw_imag = yimag
 
-
         self.update()
-
-
 
     @classmethod
     def from_file(cls, filename, rmin = 1, rmax = 100):
@@ -66,12 +63,12 @@ class DEER_spec:
             if filename[-3:] == 'DTA':
                 ydata = np.frombuffer(f.read(), dtype='>d')
                 
-                #Look for Xdata from DSC file
+                # Look for Xdata from DSC file
                 paramfile = filename[:-3] + 'DSC'
                 try:
-                    with open(paramfile, 'r') as f:
-                        for line in f:
-                            #Skip blank lines and lines with comment chars
+                    with open(paramfile, 'r') as f2:
+                        for line in f2:
+                            # Skip blank lines and lines with comment chars
                             if line.startswith(("*", "#", "\n")):
                                 continue
                             else:
@@ -113,7 +110,6 @@ class DEER_spec:
         self.correct_background()
         self.compute_kernel()
 
-
     def set_kernel_len(self, length):
         self.kernel_len = length
         self.r = np.linspace(self.rmin, self.rmax, self.kernel_len)
@@ -126,14 +122,12 @@ class DEER_spec:
 
     def set_phase(self, phi = 0, degrees = True):
         
-        if degrees == False:
+        if not degrees :
             self.phi = phi
-        elif degrees == True:
+        elif degrees:
             self.phi = phi * np.pi / 180.0
 
-
         self.update()
-
 
     def set_trim(self, trim = None):
         self.trim_length = trim
@@ -151,7 +145,7 @@ class DEER_spec:
 
     def compute_kernel(self):
 
-        #Compute Kernel
+        # Compute Kernel
         omega_dd = (2 * np.pi * 52.04) / (self.r ** 3)
         z = np.sqrt((6 * np.outer(self.fit_time, omega_dd)/np.pi))
         S_z, C_z = fresnel(z)
@@ -163,7 +157,7 @@ class DEER_spec:
         sinterm = np.sin(trigterm)
         K = CzNorm * costerm + SzNorm * sinterm
         
-        #Define L matrix 
+        # Define L matrix
         L = np.zeros((self.kernel_len - 2, self.kernel_len))
         spots = np.arange(self.kernel_len - 2)
         L[spots, spots] = 1
@@ -171,11 +165,11 @@ class DEER_spec:
         L[spots, spots + 2] = 1
         self.L = L
 
-        #Compress Data to kernel dimensions
+        # Compress Data to kernel dimensions
         f = interp1d(self.time, self.dipolar_evolution)
         kData = f(self.fit_time)
         
-        #Preprocess kernel and data for nnls fitting
+        # Preprocess kernel and data for nnls fitting
         self.K, self.y, X_offset, self.y_offset, X_scale = LinearModel._preprocess_data(
         K, kData, True, False, True, sample_weight=None)
         self.L = L
@@ -185,21 +179,20 @@ class DEER_spec:
         self.imag = self.raw_imag
         self.time = self.raw_time
 
-        #normalize working values
+        # normalize working values
         if min(self.real < 0):
             self.real = self.real - 2 * min(self.real)
 
             self.imag = self.imag/max(self.real)
             self.real = self.real/max(self.real)
 
-
         if not self.trim_length:
 
-            #take last quarter of data
+            # take last quarter of data
             start = -int(len(self.real)/3)
             window = 11
 
-            #get minimum std
+            # get minimum std
             min_std = self.real[-window:].std()
             min_i = -window
             for i in range(start, -window):
@@ -208,7 +201,7 @@ class DEER_spec:
                     min_std = test_std
                     min_i = i
 
-            max_std =  3 * min_std
+            max_std = 3 * min_std
             cutoff = len(self.real)
             
             for i in range(start, - window):
@@ -226,35 +219,31 @@ class DEER_spec:
             self.real = freal(self.time)
             self.imag = fimag(self.time)
 
-
         self.time = self.time[:cutoff] 
         self.real = self.real[:cutoff]
         self.imag = self.imag[:cutoff]
 
-        
     def phase(self):
-
-
-        #Make complex array for phase adjustment
+        # Make complex array for phase adjustment
         cData = self.real + 1j*self.imag
         
-        if self.phi == None:
-            #Initial guess for phase shift
+        if self.phi is None:
+            # Initial guess for phase shift
             phi0 = np.arctan2(self.imag[-1], self.real[-1])
             
-            #Use last 7/8ths of data to fit phase
+            # Use last 7/8ths of data to fit phase
             fit_set = cData[int(round(len(cData)/8)):]
             
             def get_imag_norm_squared(phi):
                 temp = np.imag(fit_set * np.exp(1j * phi))
                 return np.dot(temp, temp)
             
-            #Find Phi that minimizes norm of imaginary data
+            # Find Phi that minimizes norm of imaginary data
             phi = minimize(get_imag_norm_squared, phi0)
             phi = phi.x
             temp = cData * np.exp(1j * phi)
             
-            #Test for 180 degree inversion of real data
+            # Test for 180 degree inversion of real data
             if np.real(temp).sum() < 0:
                 phi = phi + np.pi
 
@@ -274,10 +263,8 @@ class DEER_spec:
                 xData = xData[:-1]
             
             return np.dot(data, xData)
-        
-        
 
-        #Interpolate data
+        # Interpolate data
         freal = interp1d(self.time, self.real, 'cubic')
         fimag = interp1d(self.time, self.imag, 'cubic')
         
@@ -286,7 +273,7 @@ class DEER_spec:
         self.imag = fimag(self.time)
     
         if not self.zt: 
-            #Take zero_moment of all windows tx(tmax)/2 and find minimum
+            # ake zero_moment of all windows tx(tmax)/2 and find minimum
             tmax = self.real.argmax()
             half_tmax = int(tmax/2)
             
@@ -294,7 +281,7 @@ class DEER_spec:
             uFrame = tmax + half_tmax + 1
             low_moment = zero_moment(self.real[lFrame : uFrame])
             
-            #Only look in first 500ns of data
+            # Only look in first 500ns of data
             for i in range(half_tmax, 500):
                 lFrame = i - half_tmax
                 uFrame = i + half_tmax + 1
@@ -308,11 +295,10 @@ class DEER_spec:
         else:
             tmax = self.zt
 
-
-        #Adjust time to appropriate zero
+        # Adjust time to appropriate zero
         self.time = self.time - self.time[tmax]
         
-        #Remomve time < 0
+        # Remove time < 0
         self.time = self.time[tmax:]
         self.real = self.real[tmax:]
         self.imag = self.imag[tmax:]
@@ -321,12 +307,11 @@ class DEER_spec:
         
     def correct_background(self):        
         
-        #calculate t0 for fit_t if none given
+        # calculate t0 for fit_t if none given
         if not self.bkgrnd_fit_t:
             self.bkgrnd_fit_t = (int(len(self.time)/4))
 
-
-        #Use last 3/4 of data to fit background
+        # Use last 3/4 of data to fit background
         fit_time = self.time[self.bkgrnd_fit_t:]
         fit_real = self.real[self.bkgrnd_fit_t:]
 
@@ -355,7 +340,7 @@ class DEER_spec:
     
     def get_fit(self, alpha=None):
         
-        if alpha == None:
+        if alpha is None:
             
             res = minimize(self.get_AIC_score, 1, args = (self.K, self.y), bounds = ((1e-3,1e3),))
             self.alpha = res.x
@@ -373,12 +358,12 @@ class DEER_spec:
         if self.kernel_len > 350:
             P = tntnn(C, d, use_AA = True)
         else:
-            #start = time()
-            #P = nnlsm_blockpivot(C,d)
-            #print('nnls_bpp:', time() - start)
-            #start = time()
+            # start = time()
+            # P = nnlsm_blockpivot(C,d)
+            # print('nnls_bpp:', time() - start)
+            # start = time()
             P = nnls(C,d)
-            #print('nnls:', time() - start)
+            # print('nnls:', time() - start)
 
         temp_fit = X.dot(P[0]) + self.y_offset
         return P, temp_fit
@@ -387,13 +372,12 @@ class DEER_spec:
         K = self.K
         L = self.L
 
-        #get starting values for P
+        # get starting values for P
         P = np.linalg.inv( (K.T.dot(K) + alpha * L.T.dot(L)) ).dot(K.T).dot(selt.y)
         P = P.clip(min = 0)
 
-        #Minimize with CVXOPT constrained to > 0
+        # Minimize with CVXOPT constrained to > 0
 
-    
     def get_AIC_score(self, alpha, X, y):
         P, temp_fit = self.get_P(X, y, alpha)
         
