@@ -23,19 +23,21 @@ class DEERSpec:
         self.fit = None
         self.alpha = None
         self.P = None
-        self.fit_time = None 
+        self.fit_time = None
         
         # Kernel parameters
         self.rmin = rmin
         self.rmax = rmax
         self.kernel_len = 200
         self.r = np.linspace(rmin, rmax, self.kernel_len)
+
         
         # Default phase and trimming parameters
         self.phi = None
         self.do_phase = do_phase
         self.trim_length = None
         self.zt = None
+        self.L_criteria = 'gcv'
 
         # Default background correction parameters
         self.bkgrnd_kind = '3D'
@@ -141,6 +143,10 @@ class DEERSpec:
         self.bkgrnd_kind =kind
         self.bkgrnd_k = k
         self.bkgrnd_fit_t = fit_time
+        self.update()
+
+    def set_L_criteria(self, mode):
+        self.L_criteria = mode
         self.update()
 
     def compute_kernel(self):
@@ -339,10 +345,10 @@ class DEERSpec:
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
     
     def get_fit(self, alpha=None):
-        
+
         if alpha is None:
             
-            res = minimize(self.get_AIC_score, 1, args = (self.K, self.y), bounds = ((1e-3,1e3),))
+            res = minimize(self.get_score, 1, args = (self.K, self.y, self.L_criteria), bounds = ((1e-3,1e3),))
             self.alpha = res.x
 
         else:
@@ -397,11 +403,26 @@ class DEERSpec:
 
     def get_AIC_score(self, alpha, X, y):
         P, temp_fit = self.get_P_cvex(alpha)
-        
+        Serr = (y + self.y_offset) - temp_fit
         K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)).dot(self.K.T)
         H_alpha = self.K.dot(K_alpha) 
 
         nt = self.kernel_len
-        score = nt * np.log((np.linalg.norm((y + self.y_offset) - temp_fit)**2)/ nt) + (2 * np.trace(H_alpha))
+        score = nt * np.log((np.linalg.norm(Serr)**2) / nt) + (2 * np.trace(H_alpha))
         
+        return score
+
+    def get_score(self, alpha, X, y, L_criteria):
+        if L_criteria == 'gcv':
+            return self.get_GCV_score(alpha, X, y)
+        if L_criteria == 'aic':
+            return self.get_AIC_score(alpha, X, y)
+
+    def get_GCV_score(self, alpha, X, y):
+        P, temp_fit = self.get_P_cvex(alpha)
+        Serr = (y + self.y_offset) - temp_fit
+        K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)).dot(self.K.T)
+        H_alpha = self.K.dot(K_alpha)
+        nt = self.kernel_len
+        score = np.linalg.norm(Serr)**2 / (1 - np.trace(H_alpha) / nt)**2
         return score
