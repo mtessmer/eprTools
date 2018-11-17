@@ -4,8 +4,8 @@ from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
-import numba
 from eprTools.tntnn import tntnn
+#from cvxopt import solvers, matrix
 #from eprTools.nnlsbpp import nnlsm_blockpivot
 from time import time
 
@@ -169,6 +169,7 @@ class DEER_spec:
         L[spots, spots] = 1
         L[spots, spots + 1] = - 2
         L[spots, spots + 2] = 1
+        self.L = L
 
         #Compress Data to kernel dimensions
         f = interp1d(self.time, self.dipolar_evolution)
@@ -381,6 +382,17 @@ class DEER_spec:
 
         temp_fit = X.dot(P[0]) + self.y_offset
         return P, temp_fit
+
+    def get_P_cvex(self, X, y, alpha):
+        K = self.K
+        L = self.L
+
+        #get starting values for P
+        P = np.linalg.inv( (K.T.dot(K) + alpha * L.T.dot(L)) ).dot(K.T).dot(selt.y)
+        P = P.clip(min = 0)
+
+        #Minimize with CVXOPT constrained to > 0
+
     
     def get_AIC_score(self, alpha, X, y):
         P, temp_fit = self.get_P(X, y, alpha)
