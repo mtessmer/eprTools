@@ -7,7 +7,7 @@ from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
 import cvxopt as cvo
 # from eprTools.nnlsbpp import nnlsm_blockpivot
-# from time import time
+from time import time
 
 
 class DEERSpec:
@@ -354,12 +354,10 @@ class DEERSpec:
         else:
             self.alpha = alpha
 
-        P, self.fit = self.get_P_cvex(self.alpha)
+        P, self.fit = self.get_P(self.alpha)
         self.P = P / np.sum(P)
             
-    def get_P(self, X, y, alpha):
-        X = self.K
-        alpha = self.alpha
+    def get_P(self, alpha):
 
         C = np.concatenate([self.K, alpha * self.L])
         d = np.concatenate([self.y, np.zeros(shape = self.kernel_len - 2)])
@@ -374,7 +372,7 @@ class DEERSpec:
             P = nnls(C,d)
             # print('nnls:', time() - start)
 
-        temp_fit = X.dot(P[0]) + self.y_offset
+        temp_fit = self.K.dot(P[0]) + self.y_offset
         return P[0], temp_fit
 
     def get_P_cvex(self, alpha):
@@ -402,7 +400,7 @@ class DEERSpec:
         return Z, temp_fit
 
     def get_AIC_score(self, alpha, X, y):
-        P, temp_fit = self.get_P_cvex(alpha)
+        P, temp_fit = self.get_P(alpha)
         Serr = (y + self.y_offset) - temp_fit
         K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)).dot(self.K.T)
         H_alpha = self.K.dot(K_alpha) 
@@ -419,7 +417,9 @@ class DEERSpec:
             return self.get_AIC_score(alpha, X, y)
 
     def get_GCV_score(self, alpha, X, y):
-        P, temp_fit = self.get_P_cvex(alpha)
+        
+        P, temp_fit = self.get_P(alpha)
+
         Serr = (y + self.y_offset) - temp_fit
         K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)).dot(self.K.T)
         H_alpha = self.K.dot(K_alpha)
