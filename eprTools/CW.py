@@ -67,9 +67,12 @@ class CWSpec:
                     deltaX = xwid / xpoints
                     xdata = np.arange(xmin, xmax + deltaX, deltaX)
 
-            elif filename[-3:] == 'csv':
-                ydata = np.genfromtxt(f, delimiter=',')
-
+            else:
+                if filename[-3:] == 'csv':
+                    ydata = np.genfromtxt(f, delimiter=',')
+                else:
+                    ydata = np.genfromtxt(f)
+                
                 print("No X axis data, guessing = 3487g, sweepwidth 100g")
                 xwid = 100.0
                 xpoints = len(ydata) - 1
