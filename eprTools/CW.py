@@ -8,7 +8,7 @@ from scipy.optimize import minimize
 from scipy import sparse
 
 
-class CWSpec:
+class CW_spec:
 
     def __init__(self, field, spec, preprocess=False, k=0, ends=50):
         self.field = field
@@ -72,7 +72,7 @@ class CWSpec:
                     ydata = np.genfromtxt(f, delimiter=',')
                 else:
                     ydata = np.genfromtxt(f)
-                
+
                 print("No X axis data, guessing = 3487g, sweepwidth 100g")
                 xwid = 100.0
                 xpoints = len(ydata) - 1
