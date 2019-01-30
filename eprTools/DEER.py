@@ -4,7 +4,7 @@ from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
-from eprTools.tntnn import tntnn
+from eprTools import tntnn
 import cvxopt as cvo
 # from eprTools.nnlsbpp import nnlsm_blockpivot
 from time import time
@@ -120,6 +120,8 @@ class DEERSpec:
 
     def set_kernel_r(self, rmin = 0, rmax = 100):
         self.r = np.linspace(rmin, rmax, self.kernel_len)
+        self.rmin = rmin
+        self.rmax = rmax
         self.update()
 
     def set_phase(self, phi = 0, degrees = True):
@@ -139,7 +141,7 @@ class DEERSpec:
         self.zt = zt;
         self.update()
 
-    def set_background_correction(self, kind='3d', k=1, fit_time = None):
+    def set_background_correction(self, kind='3D', k=1, fit_time = None):
         self.bkgrnd_kind =kind
         self.bkgrnd_k = k
         self.bkgrnd_fit_t = fit_time
@@ -315,7 +317,7 @@ class DEERSpec:
         
         # calculate t0 for fit_t if none given
         if not self.bkgrnd_fit_t:
-            self.bkgrnd_fit_t = (int(len(self.time)/4))
+            self.bkgrnd_fit_t = (int(len(self.time)/8))
 
         # Use last 3/4 of data to fit background
         fit_time = self.time[self.bkgrnd_fit_t:]
