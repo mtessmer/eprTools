@@ -4,7 +4,7 @@ from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
-from eprTools import tntnn
+from eprTools.tntnn import tntnn
 import cvxopt as cvo
 # from eprTools.nnlsbpp import nnlsm_blockpivot
 from time import time
@@ -17,7 +17,7 @@ class DEERSpec:
         # Working values
         self.time = time
         self.real = yreal
-        self.imag = yimag 
+        self.imag = yimag
 
         # Tikhonov fit results
         self.fit = None
@@ -28,7 +28,7 @@ class DEERSpec:
         # Kernel parameters
         self.rmin = rmin
         self.rmax = rmax
-        self.kernel_len = 200
+        self.kernel_len = 256
         self.r = np.linspace(rmin, rmax, self.kernel_len)
 
         
@@ -98,7 +98,7 @@ class DEERSpec:
         
         yreal = ydata[::2]
         yimag = ydata[1::2]
-        
+
         return cls(xdata, yreal, yimag, rmin, rmax, do_phase)
 
     def update(self):
@@ -117,6 +117,21 @@ class DEERSpec:
         self.r = np.linspace(self.rmin, self.rmax, self.kernel_len)
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         self.update()
+
+    def get_L_curve(self, length = 20):
+        alpha_list = np.logspace(-4, 4, length)
+        rho = np.zeros(len(alpha_list))
+        eta = np.zeros(len(alpha_list))
+        for i, alpha in enumerate(alpha_list):
+            P, temp_fit = self.get_P(alpha)
+            Serr = (self.y + self.y_offset) - temp_fit
+            rho[i] = np.log(np.linalg.norm(Serr))
+            eta[i] = np.log(np.linalg.norm((np.dot(self.L, P))))
+
+        difference = np.abs(alpha_list - self.alpha)
+        alpha_idx = np.argmin(difference)
+
+        return rho, eta, alpha_idx
 
     def set_kernel_r(self, rmin = 0, rmax = 100):
         self.r = np.linspace(rmin, rmax, self.kernel_len)
@@ -154,13 +169,14 @@ class DEERSpec:
     def compute_kernel(self):
 
         # Compute Kernel
-        omega_dd = (2 * np.pi * 52.04) / (self.r ** 3)
-        z = np.sqrt((6 * np.outer(self.fit_time, omega_dd)/np.pi))
+        omega_dd = (2 * np.pi * 52.0410) / (self.r ** 3)
+        trigterm = np.outer(self.fit_time, omega_dd)
+        z = np.sqrt((6 * trigterm/np.pi))
         S_z, C_z = fresnel(z)
         SzNorm = S_z / z
         CzNorm = C_z / z
 
-        trigterm = np.outer(self.fit_time, omega_dd)
+
         costerm = np.cos(trigterm)
         sinterm = np.sin(trigterm)
         K = CzNorm * costerm + SzNorm * sinterm
@@ -310,7 +326,7 @@ class DEERSpec:
         self.time = self.time[tmax:]
         self.real = self.real[tmax:]
         self.imag = self.imag[tmax:]
-        
+
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         
     def correct_background(self):        
@@ -349,8 +365,8 @@ class DEERSpec:
     def get_fit(self, alpha=None):
 
         if alpha is None:
-            
-            res = minimize(self.get_score, 1, args = (self.K, self.y, self.L_criteria), bounds = ((1e-3,1e3),))
+
+            res = minimize(self.get_score, 1, args = (self.y, self.L_criteria), method='Nelder-Mead')
             self.alpha = res.x
 
         else:
@@ -364,7 +380,7 @@ class DEERSpec:
         C = np.concatenate([self.K, alpha * self.L])
         d = np.concatenate([self.y, np.zeros(shape = self.kernel_len - 2)])
         
-        if self.kernel_len > 350:
+        if self.kernel_len > 1024:
             P = tntnn(C, d, use_AA = True)
         else:
             # start = time()
@@ -401,29 +417,29 @@ class DEERSpec:
         temp_fit = K.dot(Z) + self.y_offset
         return Z, temp_fit
 
-    def get_AIC_score(self, alpha, X, y):
+    def get_AIC_score(self, alpha, y):
         P, temp_fit = self.get_P(alpha)
         Serr = (y + self.y_offset) - temp_fit
-        K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)).dot(self.K.T)
-        H_alpha = self.K.dot(K_alpha) 
+        K_alpha, _,_,_ = np.linalg.lstsq((self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)), self.K.T, rcond=None)
+        H_alpha = self.K.dot(K_alpha)
 
         nt = self.kernel_len
         score = nt * np.log((np.linalg.norm(Serr)**2) / nt) + (2 * np.trace(H_alpha))
         
         return score
 
-    def get_score(self, alpha, X, y, L_criteria):
+    def get_score(self, alpha, y, L_criteria):
         if L_criteria == 'gcv':
-            return self.get_GCV_score(alpha, X, y)
+            return self.get_GCV_score(alpha, y)
         if L_criteria == 'aic':
-            return self.get_AIC_score(alpha, X, y)
+            return self.get_AIC_score(alpha, y)
 
-    def get_GCV_score(self, alpha, X, y):
+    def get_GCV_score(self, alpha, y):
         
         P, temp_fit = self.get_P(alpha)
 
         Serr = (y + self.y_offset) - temp_fit
-        K_alpha = np.linalg.inv(self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)).dot(self.K.T)
+        K_alpha, _,_,_ = np.linalg.lstsq((self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)), self.K.T, rcond=None)
         H_alpha = self.K.dot(K_alpha)
         nt = self.kernel_len
         score = np.linalg.norm(Serr)**2 / (1 - np.trace(H_alpha) / nt)**2
