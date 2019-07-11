@@ -3,3 +3,4 @@
 build/
 dist/
 __pychache__/
+test/*
