@@ -1,10 +1,9 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from glob import glob
-from scipy.signal import savgol_filter, find_peaks_cwt
+from scipy.signal import find_peaks_cwt
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
-from scipy.optimize import minimize
+
 
 class CWSpec:
 
@@ -20,21 +19,18 @@ class CWSpec:
         with open(filename, 'rb') as f:
 
             if filename[-3:] == 'DTA':
-                ydata = np.frombuffer(f.read(), dtype='>d')
+                y_data = np.frombuffer(f.read(), dtype='>d')
 
-                # Look for Xdata from DSC file
-                paramfile = filename[:-3] + 'DSC'
-
+                # Look for x_data from DSC file
+                param_file = filename[:-3] + 'DSC'
                 try:
                     d = {}
-                    with open(paramfile, 'r') as f:
+                    with open(param_file, 'r') as f2:
 
-                        for line in f:
-
+                        for line in f2:
                             # Skip blank lines and lines with comment chars
                             if line.startswith(("*", "#", "\n")):
                                 continue
-
                             else:
                                 line = line.split()
                                 try:
@@ -52,28 +48,28 @@ class CWSpec:
 
                     xmax = xmin + xwid
                     deltaX = xwid / xpoints
-                    xdata = np.arange(xmin, xmax + deltaX, deltaX)
+                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
 
                 except OSError:
 
                     print("Param file not present or incorrectly named")
                     print("Guessing centerfield = 3487g, sweepwidth 100g")
                     xwid = 100.0
-                    xpoints = len(ydata) - 1
+                    xpoints = len(y_data) - 1
                     xmin = 3437
                     xmax = xmin + xwid
                     deltaX = xwid / xpoints
-                    xdata = np.arange(xmin, xmax + deltaX, deltaX)
+                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
 
             elif filename[-3:] == 'spc':
-                ydata = np.frombuffer(f.read(), dtype='f')
+                y_data = np.frombuffer(f.read(), dtype='f')
 
-                # Look for Xdata from DSC file
-                paramfile = filename[:-3] + 'par'
+                # Look for x_data from DSC file
+                param_file = filename[:-3] + 'par'
 
                 try:
                     d = {}
-                    with open(paramfile, 'r') as f:
+                    with open(param_file, 'r') as f:
 
                         for line in f:
 
@@ -98,39 +94,39 @@ class CWSpec:
 
                     xmax = xmin + xwid
                     deltaX = xwid / xpoints
-                    xdata = np.arange(xmin, xmax + deltaX, deltaX)
+                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
 
                 except OSError:
 
                     print("Param file not present or incorrectly named")
                     print("Guessing centerfield = 3487g, sweepwidth 100g")
                     xwid = 100.0
-                    xpoints = len(ydata) - 1
+                    xpoints = len(y_data) - 1
                     xmin = 3437
                     xmax = xmin + xwid
                     deltaX = xwid / xpoints
-                    xdata = np.arange(xmin, xmax + deltaX, deltaX)
+                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
 
             else:
                 if filename[-3:] == 'csv':
-                    ydata = np.genfromtxt(f, delimiter=',')
+                    y_data = np.genfromtxt(f, delimiter=',')
                 else:
-                    ydata = np.genfromtxt(f)
+                    y_data = np.genfromtxt(f)
 
                 print("No X axis data, guessing = 3487g, sweepwidth 100g")
                 xwid = 100.0
-                xpoints = len(ydata) - 1
+                xpoints = len(y_data) - 1
                 xmin = 3437
                 xmax = xmin + xwid
                 deltaX = xwid / xpoints
-                xdata = np.arange(xmin, xmax + deltaX, deltaX)
-                xdata = xdata[:len(ydata)]
+                x_data = np.arange(xmin, xmax + deltaX, deltaX)
+                x_data = x_data[:len(y_data)]
 
-                if len(xdata) == 2048:
-                    xdata = xdata[::2]
-                    ydata = ydata[::2]
+                if len(x_data) == 2048:
+                    x_data = x_data[::2]
+                    y_data = y_data[::2]
 
-            CW_obj = cls(xdata, ydata, preprocess, k, ends)
+            CW_obj = cls(x_data, y_data, preprocess, k, ends)
 
             return CW_obj
 
