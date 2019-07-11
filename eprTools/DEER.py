@@ -30,7 +30,8 @@ class DEERSpec:
         self.rmax = rmax
         self.kernel_len = 256
         self.r = np.linspace(rmin, rmax, self.kernel_len)
-
+        
+        
         
         # Default phase and trimming parameters
         self.phi = None
@@ -349,7 +350,7 @@ class DEERSpec:
                 return a * np.exp(-k * (t ** (d/3)) + j)
 
             popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0 = (1, 1e-5, 1e-2) )
-        
+
             self.bkgrnd = homogeneous_3d(self.time, *popt)
             self.bkgrnd_param = popt
 
