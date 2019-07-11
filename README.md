@@ -30,23 +30,21 @@ plt.show()
 import matplotlib.pyplot as plt
 from eprTools import DEERSpec
 
+# compute distance distribution
 spc = DEERSpec.from_file('Example_DEER.DTA')
-#spc.set_trim(3000)
-#spc.set_background_correction(fit_time=700)
 spc.set_kernel_r(rmin=15, rmax=60)
-spc.set_kernel_len(250)                                                 # todo add examples for all features
+spc.set_kernel_len(250)
 
 spc.get_fit()
 
+# plot background corrected dipolar evolution, fit and distance distribution
 fig, (ax1, ax2) = plt.subplots(1,2, figsize = [20, 10.5])
 ax1.plot(spc.time, spc.dipolar_evolution)
 ax1.plot(spc.fit_time, spc.fit)
 ax2.plot(spc.r, spc.P)
 plt.show()
 
-
-
-#Get L-curve
+# plot L-curve
 rho, eta, alpha_idx = spc.get_L_curve()
 
 fig2, ax = plt.subplots()
@@ -56,5 +54,3 @@ plt.show()
 
 print(spc.alpha)
 ```
-
-
