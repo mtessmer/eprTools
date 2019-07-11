@@ -1,7 +1,7 @@
 # eprTools
 
-eprTools is a package for interacting with and analyzing EPR data using numpy scipy and sklearn.
-The two main classes DEER_spec and CW_spec corresponding to Double Electron-Electron Resonance experiments and Continuous Wave experiments
+eprTools is a package for interacting with and analyzing EPR data using numpy, scipy and sklearn.
+The two main classes DEERspec and CWspec corresponding to Double Electron-Electron Resonance experiments and Continuous Wave experiments
 
 ## Installation
 ```bash
@@ -10,7 +10,7 @@ cd eprTools
 python setup.py install
 ```
 
-## Getting Started -- CW_spec
+## Getting Started -- CWspec
 
 ```python
 import matplotlib.pyplot as plt
@@ -24,7 +24,7 @@ plt.plot(mySpc2.field, mySpc2.spec)
 plt.show()
 ```
 
-## Getting Started -- DEER_Spec
+## Getting Started -- DEERSpec
 
 ```python
 import matplotlib.pyplot as plt
