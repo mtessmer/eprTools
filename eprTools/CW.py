@@ -5,133 +5,204 @@ from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
 
 
+def guess_field(spec):
+    print("Param file not present or incorrectly named")
+    print("Guessing center field = 3487g, sweep width 100g")
+    field_width = 100.0
+    points = len(spec) - 1
+    field_min = 3437
+    field_max = field_min + field_width
+    field_delta = field_width / points
+    field = np.arange(field_min, field_max + field_delta, field_delta)
+
+    return field
+
+def load_csv(file, file_name):
+    if file_name[-3:] == 'csv':
+        spec = np.genfromtxt(file, delimiter=',')
+    else:
+        spec = np.genfromtxt(file)
+
+    field = guess_field(spec)
+
+    if len(field) == 2048:
+        field = field[::2]
+        spec = spec[::2]
+
+    return field, spec
+
+
+def load_winepr(file, file_name):
+    spec = np.frombuffer(file.read(), dtype='f')
+
+    # Look for x_data from DSC file
+    param_file = file_name[:-3] + 'par'
+
+    try:
+        param_dict = {}
+        with open(param_file, 'r') as f:
+
+            for line in f:
+
+                # Skip blank lines and lines with comment chars
+                if line.startswith(("*", "#", "\n")):
+                    continue
+
+                else:
+                    line = line.split()
+                    try:
+                        key = line[0]
+                        val = list(map(str.strip, line[1:]))
+                    except IndexError:
+                        key = line
+                        val = None
+
+                param_dict[key] = val
+
+        points = int(param_dict['ANZ'][0]) - 1
+        field_min = float(param_dict['GST'][0])
+        field_width = float(param_dict['GSI'][0])
+
+        field_max = field_min + field_width
+        field_delta = field_width / points
+        field = np.arange(field_min, field_max + field_delta, field_delta)
+
+    except OSError:
+
+        field = guess_field(spec)
+
+    if len(field) == 2048:
+        field = field[::2]
+        spec = spec[::2]
+
+    return field, spec
+
+
+def load_bruker(file, file_name):
+    spec = np.frombuffer(file.read(), dtype='>d')
+
+    # Look for x_data from DSC file
+    param_file = file_name[:-3] + 'DSC'
+    try:
+        d = {}
+        with open(param_file, 'r') as f2:
+
+            for line in f2:
+                # Skip blank lines and lines with comment chars
+                if line.startswith(("*", "#", "\n")):
+                    continue
+                else:
+                    line = line.split()
+                    try:
+                        key = line[0]
+                        val = list(map(str.strip, line[1:]))
+                    except IndexError:
+                        key = line
+                        val = None
+
+                d[key] = val
+
+        points = int(d['XPTS'][0]) - 1
+        field_min = float(d['XMIN'][0])
+        field_width = float(d['XWID'][0])
+
+        field_max = field_min + field_width
+        field_delta = field_width / points
+        field = np.arange(field_min, field_max + field_delta, field_delta)
+
+    except OSError:
+        field = guess_field(spec)
+
+    if len(field) == 2048:
+        field = field[::2]
+        spec = spec[::2]
+
+    return field, spec
+
+
 class CWSpec:
+    """Continuous wave spectroscopy object
+
+    Attributes:
+        field (:obj:numpy.ndarray):
+        spec (:obj:numpy.ndarray):
+
+    """
 
     def __init__(self, field, spec, preprocess=False, k=0, ends=50):
+        """
+        Initialize the CW experiment object.
+
+        :param field: (ndarray)
+            Magnetic field of the continuous wave experiment.
+
+        :param spec: (ndarray)
+            First derivative of the absorbance spectrum at each magnetic field point.
+
+        :param preprocess: (bool)
+            When set to true the data will be baseline corrected using a polynomial fit of degree k. If k > 0
+            the polynomial will be fit the the first and last 'ends' points of the spectrum normalized such that the
+            second integral is equal to 1.
+
+        :param k: (int)
+            The order of the polynomial for baseline correction.
+
+        :param ends:
+            Number of points to use from each end of the spectrum for fitting polynomial for baseline correction.
+        """
+
         self.field = field
         self.spec = spec
         if preprocess:
-            self.prep(k=k, ends=ends)
+            self.__prep(k=k, ends=ends)
 
     # import methods
     @classmethod
-    def from_file(cls, filename, preprocess=False, k=0, ends=50):
-        with open(filename, 'rb') as f:
+    def from_file(cls, file_name, preprocess=False, k=0, ends=50):
+        """
+        Import raw data from file.
 
-            if filename[-3:] == 'DTA':
-                y_data = np.frombuffer(f.read(), dtype='>d')
+        file types supported:
+            Bruker DTA,DSC
+            CSV
+            Bruker winEPR spc
 
-                # Look for x_data from DSC file
-                param_file = filename[:-3] + 'DSC'
-                try:
-                    d = {}
-                    with open(param_file, 'r') as f2:
+        :param file_name: (string)
+            Name of file being imported.
 
-                        for line in f2:
-                            # Skip blank lines and lines with comment chars
-                            if line.startswith(("*", "#", "\n")):
-                                continue
-                            else:
-                                line = line.split()
-                                try:
-                                    key = line[0]
-                                    val = list(map(str.strip, line[1:]))
-                                except IndexError:
-                                    key = line
-                                    val = None
+        :param preprocess: (bool)
+            When set to true the data will be baseline corrected using a polynomial fit of degree k. If k > 0
+            the polynomial will be fit the the first and last 'ends' points of the spectrum normalized such that the
+            second integral is equal to 1.
 
-                            d[key] = val
+        :param k: (int)
+            The order of the polynomial for baseline correction.
 
-                    xpoints = int(d['XPTS'][0]) - 1
-                    xmin = float(d['XMIN'][0])
-                    xwid = float(d['XWID'][0])
+        :param ends:
+            Number of points to use from each end of the spectrum for fitting polynomial for baseline correction.
 
-                    xmax = xmin + xwid
-                    deltaX = xwid / xpoints
-                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
+        :return: CWobj
+            An initialized CW experiment object
+        """
 
-                except OSError:
+        # Open the file
+        with open(file_name, 'rb') as file:
 
-                    print("Param file not present or incorrectly named")
-                    print("Guessing centerfield = 3487g, sweepwidth 100g")
-                    xwid = 100.0
-                    xpoints = len(y_data) - 1
-                    xmin = 3437
-                    xmax = xmin + xwid
-                    deltaX = xwid / xpoints
-                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
+            # Determine file type
+            if file_name[-3:] == 'DTA':
+                field, spec = load_bruker(file, file_name)
 
-            elif filename[-3:] == 'spc':
-                y_data = np.frombuffer(f.read(), dtype='f')
-
-                # Look for x_data from DSC file
-                param_file = filename[:-3] + 'par'
-
-                try:
-                    d = {}
-                    with open(param_file, 'r') as f:
-
-                        for line in f:
-
-                            # Skip blank lines and lines with comment chars
-                            if line.startswith(("*", "#", "\n")):
-                                continue
-
-                            else:
-                                line = line.split()
-                                try:
-                                    key = line[0]
-                                    val = list(map(str.strip, line[1:]))
-                                except IndexError:
-                                    key = line
-                                    val = None
-
-                            d[key] = val
-
-                    xpoints = int(d['ANZ'][0]) - 1
-                    xmin = float(d['GST'][0])
-                    xwid = float(d['GSI'][0])
-
-                    xmax = xmin + xwid
-                    deltaX = xwid / xpoints
-                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
-
-                except OSError:
-
-                    print("Param file not present or incorrectly named")
-                    print("Guessing centerfield = 3487g, sweepwidth 100g")
-                    xwid = 100.0
-                    xpoints = len(y_data) - 1
-                    xmin = 3437
-                    xmax = xmin + xwid
-                    deltaX = xwid / xpoints
-                    x_data = np.arange(xmin, xmax + deltaX, deltaX)
-
+            elif file_name[-3:] == 'spc':
+                field, spec = load_winepr(file, file_name)
             else:
-                if filename[-3:] == 'csv':
-                    y_data = np.genfromtxt(f, delimiter=',')
-                else:
-                    y_data = np.genfromtxt(f)
+                field, spec = load_csv(file, file_name)
 
-                print("No X axis data, guessing = 3487g, sweepwidth 100g")
-                xwid = 100.0
-                xpoints = len(y_data) - 1
-                xmin = 3437
-                xmax = xmin + xwid
-                deltaX = xwid / xpoints
-                x_data = np.arange(xmin, xmax + deltaX, deltaX)
-                x_data = x_data[:len(y_data)]
-
-                if len(x_data) == 2048:
-                    x_data = x_data[::2]
-                    y_data = y_data[::2]
-
-            CW_obj = cls(x_data, y_data, preprocess, k, ends)
+            CW_obj = cls(field, spec, preprocess, k, ends)
 
             return CW_obj
 
     # Preparatory methods
-    def prep(self, k=0, ends=50):
+    def __prep(self, k=0, ends=50):
         self.basecorr(k, ends)
         self.normalize()
 
@@ -162,39 +233,39 @@ class CWSpec:
 
         self.spec = self.spec / np.trapz(first_integral, self.field)
 
-    def center(self, center_field = 0):
-        #Find the min and max of the spectra
+    def center(self, center_field=0):
+        # Find the min and max of the spectra
         Xmax = np.argmax(self.spec)
         Xmin = np.argmin(self.spec)
-    
-        #Take a subset of min and max to find midpoint
+
+        # Take a subset of min and max to find midpoint
         myMidSub = self.spec[Xmax:Xmin]
         subMidpoint = (np.abs(myMidSub)).argmin()
         midIdx = Xmax + subMidpoint
-        
+
         midPoint = self.field[midIdx]
-        
-        #Set field s.t. the spectral midpoint is at center_field
-        self.cfield = np.arange(-500,500) #self.field - midPoint + center_field
-        self.cspec = self.spec[midIdx - 500 : midIdx + 500]
+
+        # Set field s.t. the spectral midpoint is at center_field
+        self.cfield = np.arange(-500, 500)  # self.field - midPoint + center_field
+        self.cspec = self.spec[midIdx - 500: midIdx + 500]
 
     # Special Methods
     def __add__(self, a):
 
-        fieldmin = min([self.field.min(), a.field.min()])
-        fieldmax = max([self.field.max(), a.field.max()])
-        step = (fieldmax - fieldmin) / 1024
-        fieldrange = np.arange(fieldmin, fieldmax, step)
+        field_min = min([self.field.min(), a.field.min()])
+        field_max = max([self.field.max(), a.field.max()])
+        step = (field_max - field_min) / 1024
+        field_range = np.arange(field_min, field_max, step)
 
         f1 = interp1d(self.field, self.spec, kind='cubic')
         f2 = interp1d(a.field, a.spec, kind='cubic')
 
-        spc1 = f1(fieldrange)
-        spc2 = f2(fieldrange)
+        spc1 = f1(field_range)
+        spc2 = f2(field_range)
 
-        newspc = spc1 + spc2
+        new_spec = spc1 + spc2
 
-        return CW_spec(fieldrange, newspc)
+        return CWSpec(field_range, new_spec)
 
     def __sub__(self, a):
 
