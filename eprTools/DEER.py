@@ -1,13 +1,37 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
-import cvxopt as cvo
-# from eprTools.nnlsbpp import nnlsm_blockpivot
+import matplotlib.pyplot as plt
 from time import time
+
+def do_it_for_me(filename):
+    t1 = time()
+    spc = DEERSpec.from_file(filename)
+    spc.get_fit()
+    t2 = time()
+    print("Fit computed in {}".format(t2 - t1))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
+    ax1.plot(spc.time, spc.dipolar_evolution)
+    ax1.plot(spc.fit_time, spc.fit)
+    ax2.plot(spc.r, spc.P)
+    plt.show()
+
+    # Get L-curve
+    t1 = time()
+    rho, eta, alpha_idx = spc.get_L_curve()
+    t2 = time()
+    print("L-curve computed in {}".format(t2 - t1))
+
+
+    fig2, ax = plt.subplots()
+    ax.scatter(rho, eta)
+    ax.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
+    plt.show()
+
+    print(spc.alpha)
 
 
 class DEERSpec:
@@ -22,6 +46,9 @@ class DEERSpec:
         # Tikhonov fit results
         self.fit = None
         self.alpha = None
+        self.alpha_idx = None
+        self.rho = None
+        self.eta = None
         self.P = None
         self.fit_time = None
         
@@ -30,9 +57,7 @@ class DEERSpec:
         self.rmax = rmax
         self.kernel_len = 256
         self.r = np.linspace(rmin, rmax, self.kernel_len)
-        
-        
-        
+
         # Default phase and trimming parameters
         self.phi = None
         self.do_phase = do_phase
@@ -58,7 +83,7 @@ class DEERSpec:
         self.update()
 
     @classmethod
-    def from_file(cls, filename, rmin = 1, rmax = 100):
+    def from_file(cls, filename, rmin = 15, rmax = 80):
         d = {}
         ydata = []
         with open(filename, 'rb') as f:
@@ -119,20 +144,40 @@ class DEERSpec:
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         self.update()
 
-    def get_L_curve(self, length = 20):
-        alpha_list = np.logspace(-4, 4, length)
-        rho = np.zeros(len(alpha_list))
-        eta = np.zeros(len(alpha_list))
-        for i, alpha in enumerate(alpha_list):
-            P, temp_fit = self.get_P(alpha)
-            Serr = (self.y + self.y_offset) - temp_fit
-            rho[i] = np.log(np.linalg.norm(Serr))
-            eta[i] = np.log(np.linalg.norm((np.dot(self.L, P))))
+    def get_L_curve(self, length = 20, set_alpha = False):
 
-        difference = np.abs(alpha_list - self.alpha)
-        alpha_idx = np.argmin(difference)
+        if self.alpha_idx:
+            return self.rho, self.eta, self.alpha_idx
 
-        return rho, eta, alpha_idx
+        else:
+            alpha_list = np.logspace(-4, 4, length)
+            rho = np.zeros(len(alpha_list))
+            eta = np.zeros(len(alpha_list))
+            best_alpha_score = 100000
+            best_alpha = 1
+
+            # TODO: paralellize
+            for i, alpha in enumerate(alpha_list):
+                P, temp_fit = self.get_P(alpha)
+                Serr = (self.y + self.y_offset) - temp_fit
+                rho[i] = np.log(np.linalg.norm(Serr))
+                eta[i] = np.log(np.linalg.norm((np.dot(self.L, P))))
+                temp_score = self.get_score(alpha)
+                if temp_score < best_alpha_score:
+                    best_alpha_score = temp_score
+                    best_alpha = alpha
+
+            if set_alpha:
+                self.alpha = best_alpha
+
+            difference = np.abs(alpha_list - self.alpha)
+
+
+            self.alpha_idx = np.argmin(difference)
+            self.rho = rho
+            self.eta = eta
+
+            return self.rho, self.eta, self.alpha_idx
 
     def set_kernel_r(self, rmin = 0, rmax = 100):
         self.r = np.linspace(rmin, rmax, self.kernel_len)
@@ -363,13 +408,15 @@ class DEERSpec:
             self.bkgrnd_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
     
-    def get_fit(self, alpha=None):
+    def get_fit(self, alpha=None, truemin = False):
 
-        if alpha is None:
+        if alpha is None and truemin:
 
-            res = minimize(self.get_score, 1, args = (self.y, self.L_criteria), method='Nelder-Mead')
+            res = minimize(self.get_score, 1, method='Nelder-Mead')
             self.alpha = res.x
 
+        elif alpha is None:
+            rho, eta, alpha_idx = self.get_L_curve(set_alpha=True)
         else:
             self.alpha = alpha
 
@@ -418,9 +465,9 @@ class DEERSpec:
         temp_fit = K.dot(Z) + self.y_offset
         return Z, temp_fit
 
-    def get_AIC_score(self, alpha, y):
+    def get_AIC_score(self, alpha):
         P, temp_fit = self.get_P(alpha)
-        Serr = (y + self.y_offset) - temp_fit
+        Serr = (self.y + self.y_offset) - temp_fit
         K_alpha, _,_,_ = np.linalg.lstsq((self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)), self.K.T, rcond=None)
         H_alpha = self.K.dot(K_alpha)
 
@@ -429,17 +476,17 @@ class DEERSpec:
         
         return score
 
-    def get_score(self, alpha, y, L_criteria):
-        if L_criteria == 'gcv':
-            return self.get_GCV_score(alpha, y)
-        if L_criteria == 'aic':
-            return self.get_AIC_score(alpha, y)
+    def get_score(self, alpha):
+        if self.L_criteria == 'gcv':
+            return self.get_GCV_score(alpha)
+        elif self.L_criteria == 'aic':
+            return self.get_AIC_score(alpha)
 
-    def get_GCV_score(self, alpha, y):
+    def get_GCV_score(self, alpha):
         
         P, temp_fit = self.get_P(alpha)
 
-        Serr = (y + self.y_offset) - temp_fit
+        Serr = (self.y + self.y_offset) - temp_fit
         K_alpha, _,_,_ = np.linalg.lstsq((self.K.T.dot(self.K) + (alpha**2)* self.L.T.dot(self.L)), self.K.T, rcond=None)
         H_alpha = self.K.dot(K_alpha)
         nt = self.kernel_len
