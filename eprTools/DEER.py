@@ -7,33 +7,6 @@ from eprTools.tntnn import tntnn
 import matplotlib.pyplot as plt
 from time import time
 
-
-def do_it_for_me(filename):
-    t1 = time()
-    spc = DEERSpec.from_file(filename)
-    spc.get_fit()
-    t2 = time()
-    print("Fit computed in {}".format(t2 - t1))
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
-    ax1.plot(spc.time, spc.dipolar_evolution)
-    ax1.plot(spc.fit_time, spc.fit)
-    ax2.plot(spc.r, spc.P)
-    plt.show()
-
-    # Get L-curve
-    t1 = time()
-    rho, eta, alpha_idx = spc.get_L_curve()
-    t2 = time()
-    print("L-curve computed in {}".format(t2 - t1))
-    
-    fig2, ax = plt.subplots()
-    ax.scatter(rho, eta)
-    ax.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
-    plt.show()
-
-    print(spc.alpha)
-
-
 class DEERSpec:
 
     def __init__(self, time, yreal, yimag, rmin, rmax, do_phase):
@@ -492,3 +465,29 @@ class DEERSpec:
         nt = self.kernel_len
         score = np.linalg.norm(Serr) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
         return score
+
+
+def do_it_for_me(filename):
+    t1 = time()
+    spc = DEERSpec.from_file(filename)
+    spc.get_fit()
+    t2 = time()
+    print("Fit computed in {}".format(t2 - t1))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
+    ax1.plot(spc.time, spc.dipolar_evolution)
+    ax1.plot(spc.fit_time, spc.fit)
+    ax2.plot(spc.r, spc.P)
+    plt.show()
+
+    # Get L-curve
+    t1 = time()
+    rho, eta, alpha_idx = spc.get_L_curve()
+    t2 = time()
+    print("L-curve computed in {}".format(t2 - t1))
+
+    fig2, ax = plt.subplots()
+    ax.scatter(rho, eta)
+    ax.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
+    plt.show()
+
+    print(spc.alpha)
