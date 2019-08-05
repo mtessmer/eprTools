@@ -144,7 +144,7 @@ class DEERSpec:
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         self.update()
 
-    def get_L_curve(self, length=20, set_alpha=False):
+    def get_L_curve(self, length=25, set_alpha=False):
 
         if self.alpha_idx:
             return self.rho, self.eta, self.alpha_idx
@@ -466,8 +466,8 @@ class DEERSpec:
     def get_AIC_score(self, alpha):
         P, temp_fit = self.get_P(alpha)
         Serr = (self.y + self.y_offset) - temp_fit
-        K_alpha, _, _, _ = np.linalg.lstsq((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)), self.K.T,
-                                           rcond=None)
+        K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
+
         H_alpha = self.K.dot(K_alpha)
 
         nt = self.kernel_len
@@ -486,8 +486,8 @@ class DEERSpec:
         P, temp_fit = self.get_P(alpha)
 
         Serr = (self.y + self.y_offset) - temp_fit
-        K_alpha, _, _, _ = np.linalg.lstsq((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)), self.K.T,
-                                           rcond=None)
+        K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
+
         H_alpha = self.K.dot(K_alpha)
         nt = self.kernel_len
         score = np.linalg.norm(Serr) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
