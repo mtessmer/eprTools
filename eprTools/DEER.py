@@ -6,6 +6,7 @@ from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
 import matplotlib.pyplot as plt
 from time import time
+from numba import njit
 
 class DEERSpec:
 
@@ -28,7 +29,7 @@ class DEERSpec:
         # Kernel parameters
         self.r_min = rmin
         self.r_max = rmax
-        self.kernel_len = 256
+        self.kernel_len = 216
         self.r = np.linspace(rmin, rmax, self.kernel_len)
 
         # Default phase and trimming parameters
@@ -70,6 +71,7 @@ class DEERSpec:
                 try:
                     with open(paramfile, 'r') as f2:
                         for line in f2:
+
                             # Skip blank lines and lines with comment chars
                             if line.startswith(("*", "#", "\n")):
                                 continue
@@ -119,7 +121,7 @@ class DEERSpec:
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         self.update()
 
-    def get_L_curve(self, length=25, set_alpha=False):
+    def get_L_curve(self, length=80, set_alpha=False):
 
         if self.alpha_idx:
             return self.rho, self.eta, self.alpha_idx
@@ -157,6 +159,8 @@ class DEERSpec:
             self.alpha_idx = np.argmin(difference)
             self.rho = rho
             self.eta = eta
+
+            return self.rho, self.eta, self.alpha_idx
 
     def set_kernel_r(self, rmin=15, rmax=80):
 
@@ -393,7 +397,8 @@ class DEERSpec:
             self.background_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
 
-    def get_fit(self, alpha=None, true_min=False):
+    def get_fit(self, alpha=None, true_min=False, method = None):
+        self.method = method
 
         if alpha is None and true_min:
 
@@ -411,21 +416,25 @@ class DEERSpec:
 
     def get_P(self, alpha):
 
-        C = np.concatenate([self.K, alpha * self.L])
-        d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
+        if self.method=='nnls':
+            C = np.concatenate([self.K, alpha * self.L])
+            d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
 
-        if self.kernel_len > 1024:
-            P = tntnn(C, d, use_AA=True)
+            P, _ = nnls(C, d)
+
+        elif self.kernel_len > 1024:
+            C = np.concatenate([self.K, alpha * self.L])
+            d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
+
+            P, _ = tntnn(C, d, use_AA=True)
         else:
-            # start = time()
-            # P = nnlsm_blockpivot(C,d)
-            # print('nnls_bpp:', time() - start)
-            # start = time()
-            P = nnls(C, d)
-            # print('nnls:', time() - start)
+            XTX = self.K.T.dot(self.K) + (alpha**2)*self.L.T.dot(self.L)
+            XTY = self.K.T.dot(self.y)
+            P = NNLS_GD(XTX, XTY, epsilon=1e-8)
 
-        temp_fit = self.K.dot(P[0]) + self.y_offset
-        return P[0], temp_fit
+            # print('nnls:', time() - start)
+        temp_fit = self.K.dot(P) + self.y_offset
+        return P, temp_fit
 
     def get_P_cvex(self, alpha):
 
@@ -485,12 +494,19 @@ class DEERSpec:
         return score
 
 
-def do_it_for_me(filename, true_min = False):
+#import cProfile
+#cp = cProfile.Profile()
 
+
+def do_it_for_me(filename, true_min=False, method = None):
+    #cp.enable()
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.get_fit(true_min = true_min)
+    spc.get_fit(true_min = true_min, method = method)
     t2 = time()
+    #cp.disable()
+
+    #cp.print_stats()
     print("Fit computed in {}".format(t2 - t1))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
     ax1.plot(spc.time, spc.dipolar_evolution)
@@ -510,3 +526,98 @@ def do_it_for_me(filename, true_min = False):
     plt.show()
 
     print(spc.alpha)
+
+@njit
+def solveNQP(Q, q, epsilon, max_n_iter):
+    # Initialize
+    n_cols = len(q)
+    x = np.zeros(n_cols)
+    x_diff = np.zeros(n_cols)
+    grad_f = q.copy()
+    grad_f_bar = q.copy()
+    # Loop over iterations
+    for i in range(max_n_iter):
+
+        # Get passive set information
+        passive_set = np.logical_or(x > 0, grad_f < 0)
+        n_passive = np.sum(passive_set)
+
+        # Calculate gradient
+        grad_f_bar[:] = grad_f
+
+        mask = np.where(~passive_set)[0]
+        grad_f_bar[mask] = 0
+
+        grad_norm = np.vdot(grad_f_bar, grad_f_bar)
+
+        # Abort?
+        if (n_passive == 0 or grad_norm < epsilon):
+            break
+
+        # Exact line search
+        alpha_den = np.vdot(grad_f_bar, Q.dot(grad_f_bar))
+        alpha = grad_norm / alpha_den
+
+        # Update x
+        x_diff = -x.copy()
+        x -= alpha * grad_f_bar
+        x = np.maximum(x, 0.)
+        x_diff += x
+
+        # Update gradient
+        grad_f += Q.dot(x_diff)
+
+    # Return
+    return x
+@njit
+def NNLS_GD(XTX, XTY, epsilon=1e-8):
+    max_n_iter = 5 * XTX.shape[1]
+
+    # Normalization factors
+    H_diag = np.diag(XTX).copy().flatten()
+    Q_den  = np.sqrt(np.outer(H_diag, H_diag))
+    q_den  = np.sqrt(H_diag)
+
+    # Normalize
+    Q =  XTX / Q_den
+    q = -XTY / q_den
+    # Solve NQP
+    y = solveNQP(Q, q, epsilon, max_n_iter)
+
+    # Undo normalization
+    x = y / q_den
+
+    # Return
+    return x.T
+
+
+def NNLS_CD(XTX, XTY, epsilon=None):
+    max_n_iter = 5 * XTX.shape[1]
+
+    if epsilon == None:
+        eps = np.finfo(float).eps
+        epsilon = 10 * eps * max(np.shape(XTX)) * np.linalg.norm(XTX, 1)
+    # Initialize
+    x = np.zeros((np.shape(XTX)[1], 1))
+    f = -XTY.reshape(-1, 1)
+    mu = f.copy()
+
+    # Loop over iterations
+    for i in range(max_n_iter):
+
+        # Abort?
+        Hxf = XTX.dot(x) + f
+        criterion_1 = np.all(Hxf >= -epsilon)
+        criterion_2 = np.all(Hxf[x > 0] <= epsilon)
+        if (criterion_1 and criterion_2):
+            break
+
+        # Loop over coordinates
+        for k in range(np.shape(XTX)[1]):
+            x_diff = -x[k, 0]
+            x[k, 0] = np.maximum(0., x[k, 0] - mu[k, 0] / XTX[k, k])
+            x_diff += x[k, 0]
+            mu += x_diff * XTX[:, k].reshape(-1, 1)
+
+    # Return
+    return x

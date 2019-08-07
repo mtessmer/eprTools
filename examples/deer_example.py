@@ -5,6 +5,8 @@ from eprTools import do_it_for_me
 from time import  time
 
 do_it_for_me('Example_DEER.DTA')
+do_it_for_me('Example_DEER.DTA')
+do_it_for_me('Example_DEER.DTA', method='nnls')
 
 #spc = DEERSpec.from_file('Example_DEER.DTA')
 #spc.set_trim(3000)
