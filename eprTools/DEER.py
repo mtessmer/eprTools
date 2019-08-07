@@ -123,7 +123,14 @@ class DEERSpec:
             return self.rho, self.eta, self.alpha_idx
 
         else:
-            alpha_list = np.logspace(-4, 4, length)
+
+            if self.alpha:
+                log_min = np.logspace(np.log10(self.alpha) - 4, np.log10(self.alpha), np.floor(length / 2))
+                log_max = np.logspace(np.log10(self.alpha), np.log10(self.alpha) + 4, np.ceil(length / 2))
+                alpha_list = np.concatenate([log_min, log_max])
+            else:
+                alpha_list = np.logspace(-4, 4, length)
+
             rho = np.zeros(len(alpha_list))
             eta = np.zeros(len(alpha_list))
             best_alpha_score = 100000
@@ -135,7 +142,7 @@ class DEERSpec:
                 Serr = (self.y + self.y_offset) - temp_fit
                 rho[i] = np.log(np.linalg.norm(Serr))
                 eta[i] = np.log(np.linalg.norm((np.dot(self.L, P))))
-                temp_score = self.get_score(alpha)
+                temp_score = self.get_score(alpha, temp_fit)
                 if temp_score < best_alpha_score:
                     best_alpha_score = temp_score
                     best_alpha = alpha
@@ -379,9 +386,9 @@ class DEERSpec:
             self.background_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
 
-    def get_fit(self, alpha=None, truemin=False):
+    def get_fit(self, alpha=None, true_min=False):
 
-        if alpha is None and truemin:
+        if alpha is None and true_min:
 
             res = minimize(self.get_score, 1, method='Nelder-Mead')
             self.alpha = res.x
@@ -436,9 +443,9 @@ class DEERSpec:
         temp_fit = K.dot(Z) + self.y_offset
         return Z, temp_fit
 
-    def get_AIC_score(self, alpha):
-        P, temp_fit = self.get_P(alpha)
-        Serr = (self.y + self.y_offset) - temp_fit
+    def get_AIC_score(self, alpha, fit):
+
+        Serr = (self.y + self.y_offset) - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
@@ -448,17 +455,19 @@ class DEERSpec:
 
         return score
 
-    def get_score(self, alpha):
+    def get_score(self, alpha, fit = None):
+
+        if fit is None:
+            P, fit = self.get_P(alpha)
+
         if self.L_criteria == 'gcv':
-            return self.get_GCV_score(alpha)
+            return self.get_GCV_score(alpha, fit)
         elif self.L_criteria == 'aic':
-            return self.get_AIC_score(alpha)
+            return self.get_AIC_score(alpha, fit)
 
-    def get_GCV_score(self, alpha):
+    def get_GCV_score(self, alpha, fit):
 
-        P, temp_fit = self.get_P(alpha)
-
-        Serr = (self.y + self.y_offset) - temp_fit
+        Serr = (self.y + self.y_offset) - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
@@ -467,10 +476,10 @@ class DEERSpec:
         return score
 
 
-def do_it_for_me(filename):
+def do_it_for_me(filename, true_min = False):
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.get_fit()
+    spc.get_fit(true_min = true_min)
     t2 = time()
     print("Fit computed in {}".format(t2 - t1))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
