@@ -57,6 +57,7 @@ class DEERSpec:
 
     @classmethod
     def from_file(cls, file_name, r_min=15, r_max=80):
+
         d = {}
         ydata = []
         with open(file_name, 'rb') as file:
@@ -112,6 +113,7 @@ class DEERSpec:
         self.compute_kernel()
 
     def set_kernel_len(self, length):
+
         self.kernel_len = length
         self.r = np.linspace(self.r_min, self.r_max, self.kernel_len)
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
@@ -156,9 +158,8 @@ class DEERSpec:
             self.rho = rho
             self.eta = eta
 
-            return self.rho, self.eta, self.alpha_idx
-
     def set_kernel_r(self, rmin=15, rmax=80):
+
         self.r = np.linspace(rmin, rmax, self.kernel_len)
         self.r_min = rmin
         self.r_max = rmax
@@ -174,20 +175,24 @@ class DEERSpec:
         self.update()
 
     def set_trim(self, trim=None):
+
         self.trim_length = trim
         self.update()
 
     def set_zero_time(self, zt=None):
+
         self.zt = zt;
         self.update()
 
     def set_background_correction(self, kind='3D', k=1, fit_time=None):
+
         self.background_kind = kind
         self.background_k = k
         self.background_fit_t = fit_time
         self.update()
 
     def set_L_criteria(self, mode):
+
         self.L_criteria = mode
         self.update()
 
@@ -223,6 +228,7 @@ class DEERSpec:
         self.L = L
 
     def trim(self):
+
         self.real = self.raw_real
         self.imag = self.raw_imag
         self.time = self.raw_time
@@ -272,6 +278,7 @@ class DEERSpec:
         self.imag = self.imag[:cutoff]
 
     def phase(self):
+
         # Make complex array for phase adjustment
         cData = self.real + 1j * self.imag
 
@@ -394,7 +401,8 @@ class DEERSpec:
             self.alpha = res.x
 
         elif alpha is None:
-            rho, eta, alpha_idx = self.get_L_curve(set_alpha=True)
+            self.get_L_curve(set_alpha=True)
+
         else:
             self.alpha = alpha
 
@@ -420,6 +428,7 @@ class DEERSpec:
         return P[0], temp_fit
 
     def get_P_cvex(self, alpha):
+
         # non-negative solution to get a non-negative P -- adapted from Stephan Rein's GloPel
         K = self.K
         L = self.L
@@ -477,6 +486,7 @@ class DEERSpec:
 
 
 def do_it_for_me(filename, true_min = False):
+
     t1 = time()
     spc = DEERSpec.from_file(filename)
     spc.get_fit(true_min = true_min)
