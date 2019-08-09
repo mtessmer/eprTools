@@ -6,7 +6,7 @@ from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
 import matplotlib.pyplot as plt
 from time import time
-from numba import njit
+from numba import njit, cuda
 
 class DEERSpec:
 
@@ -121,7 +121,7 @@ class DEERSpec:
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         self.update()
 
-    def get_L_curve(self, length=80, set_alpha=False):
+    def get_L_curve(self, length=82, set_alpha=False):
 
         if self.alpha_idx:
             return self.rho, self.eta, self.alpha_idx
@@ -133,7 +133,7 @@ class DEERSpec:
                 log_max = np.logspace(np.log10(self.alpha), np.log10(self.alpha) + 4, np.ceil(length / 2))
                 alpha_list = np.concatenate([log_min, log_max])
             else:
-                alpha_list = np.logspace(-4, 4, length)
+                alpha_list = np.logspace(-4, 2, length)
 
             rho = np.zeros(len(alpha_list))
             eta = np.zeros(len(alpha_list))
@@ -397,7 +397,7 @@ class DEERSpec:
             self.background_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
 
-    def get_fit(self, alpha=None, true_min=False, method = None):
+    def get_fit(self, alpha=None, true_min=False, method='nnls'):
         self.method = method
 
         if alpha is None and true_min:
@@ -427,10 +427,12 @@ class DEERSpec:
             d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
 
             P, _ = tntnn(C, d, use_AA=True)
+
         else:
             XTX = self.K.T.dot(self.K) + (alpha**2)*self.L.T.dot(self.L)
             XTY = self.K.T.dot(self.y)
-            P = NNLS_GD(XTX, XTY, epsilon=1e-8)
+
+            P = NNLS_GD(XTX, XTY)
 
             # print('nnls:', time() - start)
         temp_fit = self.K.dot(P) + self.y_offset
@@ -498,7 +500,7 @@ class DEERSpec:
 #cp = cProfile.Profile()
 
 
-def do_it_for_me(filename, true_min=False, method = None):
+def do_it_for_me(filename, true_min=False, method = 'nnls'):
     #cp.enable()
     t1 = time()
     spc = DEERSpec.from_file(filename)
@@ -531,27 +533,28 @@ def do_it_for_me(filename, true_min=False, method = None):
 def solveNQP(Q, q, epsilon, max_n_iter):
     # Initialize
     n_cols = len(q)
+    index = np.arange(n_cols)
     x = np.zeros(n_cols)
     x_diff = np.zeros(n_cols)
     grad_f = q.copy()
     grad_f_bar = q.copy()
-    # Loop over iterations
+    
+
+    # Loop over iterations  
     for i in range(max_n_iter):
 
         # Get passive set information
         passive_set = np.logical_or(x > 0, grad_f < 0)
-        n_passive = np.sum(passive_set)
 
         # Calculate gradient
         grad_f_bar[:] = grad_f
 
-        mask = np.where(~passive_set)[0]
-        grad_f_bar[mask] = 0
+        grad_f_bar[~passive_set] = 0
 
         grad_norm = np.vdot(grad_f_bar, grad_f_bar)
 
         # Abort?
-        if (n_passive == 0 or grad_norm < epsilon):
+        if (~passive_set.any() or grad_norm < epsilon):
             break
 
         # Exact line search
@@ -569,7 +572,8 @@ def solveNQP(Q, q, epsilon, max_n_iter):
 
     # Return
     return x
-@njit
+#TODO Prcompile NNLS algorithm
+#@njit
 def NNLS_GD(XTX, XTY, epsilon=1e-8):
     max_n_iter = 5 * XTX.shape[1]
 
@@ -590,16 +594,13 @@ def NNLS_GD(XTX, XTY, epsilon=1e-8):
     # Return
     return x.T
 
-
-def NNLS_CD(XTX, XTY, epsilon=None):
+@njit
+def NNLS_CD(XTX, XTY, epsilon=1e-8):
     max_n_iter = 5 * XTX.shape[1]
 
-    if epsilon == None:
-        eps = np.finfo(float).eps
-        epsilon = 10 * eps * max(np.shape(XTX)) * np.linalg.norm(XTX, 1)
     # Initialize
-    x = np.zeros((np.shape(XTX)[1], 1))
-    f = -XTY.reshape(-1, 1)
+    x = np.zeros((np.shape(XTX)[1]))
+    f = -XTY
     mu = f.copy()
 
     # Loop over iterations
@@ -614,10 +615,10 @@ def NNLS_CD(XTX, XTY, epsilon=None):
 
         # Loop over coordinates
         for k in range(np.shape(XTX)[1]):
-            x_diff = -x[k, 0]
-            x[k, 0] = np.maximum(0., x[k, 0] - mu[k, 0] / XTX[k, k])
-            x_diff += x[k, 0]
-            mu += x_diff * XTX[:, k].reshape(-1, 1)
+            x_diff = -x[k]
+            x[k] = np.maximum(0., x[k] - mu[k] / XTX[k, k])
+            x_diff += x[k]
+            mu += x_diff * XTX[:, k]
 
     # Return
     return x

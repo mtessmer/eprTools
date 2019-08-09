@@ -2,8 +2,7 @@ import numpy as np
 from scipy.special import fresnel
 
 
-def fredholm_kernel(rmin=15, rmax=80, time=3500, size=200):
-
+def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
     if time < 10:
         time = time * 1000
 
@@ -23,7 +22,8 @@ def fredholm_kernel(rmin=15, rmax=80, time=3500, size=200):
 
     return K
 
-def background(a, d = 3, time = 3500, size = 200):
+
+def background(a, d=3, time=3500, size=200):
     if time < 10:
         time = time * 1000
 

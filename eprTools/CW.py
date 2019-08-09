@@ -59,13 +59,11 @@ def load_winepr(file, file_name):
 
                 param_dict[key] = val
 
-        points = int(param_dict['ANZ'][0]) - 1
+        points = int(param_dict['ANZ'][0])
         field_min = float(param_dict['GST'][0])
         field_width = float(param_dict['GSI'][0])
-
         field_max = field_min + field_width
-        field_delta = field_width / points
-        field = np.arange(field_min, field_max + field_delta, field_delta)
+        field = np.linspace(field_min, field_max, points)
 
     except OSError:
 
@@ -84,7 +82,7 @@ def load_bruker(file, file_name):
     # Look for x_data from DSC file
     param_file = file_name[:-3] + 'DSC'
     try:
-        d = {}
+        param_dict = {}
         with open(param_file, 'r') as f2:
 
             for line in f2:
@@ -100,20 +98,19 @@ def load_bruker(file, file_name):
                         key = line
                         val = None
 
-                d[key] = val
+                param_dict[key] = val
 
-        points = int(d['XPTS'][0]) - 1
-        field_min = float(d['XMIN'][0])
-        field_width = float(d['XWID'][0])
-
+        points = int(param_dict['XPTS'][0])
+        field_min = float(param_dict['XMIN'][0])
+        field_width = float(param_dict['XWID'][0])
         field_max = field_min + field_width
-        field_delta = field_width / points
-        field = np.arange(field_min, field_max + field_delta, field_delta)
+        field = np.linspace(field_min, field_max, points)
 
     except OSError:
         field = guess_field(spec)
 
     if len(field) == 2048:
+        print('array size 2048. downsizing to 1024')
         field = field[::2]
         spec = spec[::2]
 
