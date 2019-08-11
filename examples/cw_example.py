@@ -9,3 +9,8 @@ plt.plot(mySpc1.field, mySpc1.spec)
 plt.plot(mySpc2.field, mySpc2.spec)
 plt.show()
 
+mySpc1 = CWSpec.from_file('20160630_VOTPP_10.spc', preprocess = True)
+
+plt.plot(mySpc1.field, mySpc1.spec)
+plt.show()
+

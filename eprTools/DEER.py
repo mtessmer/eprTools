@@ -103,6 +103,11 @@ class DEERSpec:
 
         return cls(xdata, yreal, yimag, r_min, r_max, do_phase)
 
+    @classmethod
+    def from_array(cls, time, spec, r_min=15, r_max=80):
+        imag = np.zeros(len(spec))
+        return cls(time, spec, imag, r_min, r_max, do_phase=False)
+
     def update(self):
 
         self.trim()
@@ -133,7 +138,7 @@ class DEERSpec:
                 log_max = np.logspace(np.log10(self.alpha), np.log10(self.alpha) + 4, np.ceil(length / 2))
                 alpha_list = np.concatenate([log_min, log_max])
             else:
-                alpha_list = np.logspace(-4, 2, length)
+                alpha_list = np.logspace(-4, 4, length)
 
             rho = np.zeros(len(alpha_list))
             eta = np.zeros(len(alpha_list))
@@ -548,9 +553,7 @@ def solveNQP(Q, q, epsilon, max_n_iter):
 
         # Calculate gradient
         grad_f_bar[:] = grad_f
-
         grad_f_bar[~passive_set] = 0
-
         grad_norm = np.vdot(grad_f_bar, grad_f_bar)
 
         # Abort?

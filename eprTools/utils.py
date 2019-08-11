@@ -23,10 +23,9 @@ def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
     return K
 
 
-def background(a, d=3, time=3500, size=200):
+def generate_background(a, k, j, d=3, time=3500, size=200):
     if time < 10:
         time = time * 1000
 
     time = np.linspace(0, time, size)
-
-    return a * np.exp(-k * (time ** (d / 3)))
+    return a * np.exp(-k * (time ** (d / 3)) + j)
