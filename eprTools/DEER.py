@@ -8,14 +8,18 @@ import matplotlib.pyplot as plt
 from time import time
 from numba import njit, cuda
 
+
 class DEERSpec:
 
-    def __init__(self, time, yreal, yimag, rmin, rmax, do_phase):
+    def __init__(self, time, spec_real, spec_imag, rmin, rmax, do_phase):
 
         # Working values
         self.time = time
-        self.real = yreal
-        self.imag = yimag
+        self.real = spec_real
+        self.imag = spec_imag
+
+        # Interpolated values
+
 
         # Tikhonov fit results
         self.fit = None
@@ -51,62 +55,59 @@ class DEERSpec:
 
         # Raw Data Untouched
         self.raw_time = time
-        self.raw_real = yreal
-        self.raw_imag = yimag
+        self.raw_spec_real = spec_real
+        self.raw_spec_imag = spec_imag
 
         self.update()
 
     @classmethod
     def from_file(cls, file_name, r_min=15, r_max=80):
 
-        d = {}
-        ydata = []
         with open(file_name, 'rb') as file:
+            spec = np.frombuffer(file.read(), dtype='>d')
 
-            if file_name[-3:] == 'DTA':
-                ydata = np.frombuffer(file.read(), dtype='>d')
+        # Look for time from DSC file
+        param_file = file_name[:-3] + 'DSC'
+        param_dict = {}
+        try:
+            with open(param_file, 'r') as file:
+                for line in file:
 
-                # Look for Xdata from DSC file
-                paramfile = file_name[:-3] + 'DSC'
-                try:
-                    with open(paramfile, 'r') as f2:
-                        for line in f2:
-
-                            # Skip blank lines and lines with comment chars
-                            if line.startswith(("*", "#", "\n")):
-                                continue
-                            else:
-                                line = line.split()
-                                try:
-                                    key = line[0]
-                                    val = [arg.strip() for arg in line[1:]]
-                                except IndexError:
-                                    key = line
-                                    val = None
-                                d[key] = val
-                except OSError:
-                    print("Error: No parameter file found")
+                    # Skip blank lines and lines with comment chars
+                    if line.startswith(("*", "#", "\n")):
+                        continue
+                    else:
+                        line = line.split()
+                        try:
+                            key = line[0]
+                            val = [arg.strip() for arg in line[1:]]
+                        except IndexError:
+                            key = line
+                            val = None
+                        param_dict[key] = val
+        except OSError:
+            print("Error: No parameter file found")
 
         do_phase = True
-        if d['PlsSPELLISTSlct'][0] == 'none':
+        if param_dict['PlsSPELLISTSlct'][0] == 'none':
             do_phase = False
 
-        xpoints = int(d['XPTS'][0])
-        xmin = float(d['XMIN'][0])
-        xwid = float(d['XWID'][0])
+        points = int(param_dict['XPTS'][0])
+        time_min = float(param_dict['XMIN'][0])
+        time_width = float(param_dict['XWID'][0])
 
-        xmax = xmin + xwid
-        xdata = np.linspace(xmin, xmax, xpoints)
+        time_max = time_min + time_width
+        time = np.linspace(time_min, time_max, points)
 
-        yreal = ydata[::2]
-        yimag = ydata[1::2]
+        spec_real = spec[0::2]
+        spec_imag = spec[1::2]
 
-        return cls(xdata, yreal, yimag, r_min, r_max, do_phase)
+        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
 
     @classmethod
     def from_array(cls, time, spec, r_min=15, r_max=80):
-        imag = np.zeros(len(spec))
-        return cls(time, spec, imag, r_min, r_max, do_phase=False)
+        spec_imag = np.zeros(len(spec))
+        return cls(time, spec, spec_imag, r_min, r_max, do_phase=False)
 
     def update(self):
 
@@ -145,7 +146,6 @@ class DEERSpec:
             best_alpha_score = 100000
             best_alpha = 1
 
-            # TODO: paralellize
             for i, alpha in enumerate(alpha_list):
                 P, temp_fit = self.get_P(alpha)
                 Serr = (self.y + self.y_offset) - temp_fit
@@ -238,8 +238,8 @@ class DEERSpec:
 
     def trim(self):
 
-        self.real = self.raw_real
-        self.imag = self.raw_imag
+        self.real = self.raw_spec_real
+        self.imag = self.raw_spec_imag
         self.time = self.raw_time
 
         # normalize working values
@@ -275,12 +275,12 @@ class DEERSpec:
 
         elif self.trim_length:
             cutoff = self.trim_length
-            freal = interp1d(self.time, self.real, 'cubic')
-            fimag = interp1d(self.time, self.imag, 'cubic')
+            f_spec_real = interp1d(self.time, self.real, 'cubic')
+            f_spec_imag = interp1d(self.time, self.imag, 'cubic')
 
             self.time = np.arange(self.time.min(), self.time.max())
-            self.real = freal(self.time)
-            self.imag = fimag(self.time)
+            self.real = f_spec_real(self.time)
+            self.imag = f_spec_imag(self.time)
 
         self.time = self.time[:cutoff]
         self.real = self.real[:cutoff]
@@ -289,33 +289,33 @@ class DEERSpec:
     def phase(self):
 
         # Make complex array for phase adjustment
-        cData = self.real + 1j * self.imag
+        complex_data = self.real + 1j * self.imag
 
         if self.phi is None:
             # Initial guess for phase shift
             phi0 = np.arctan2(self.imag[-1], self.real[-1])
 
             # Use last 7/8ths of data to fit phase
-            fit_set = cData[int(round(len(cData) / 8)):]
+            fit_set = complex_data[int(round(len(complex_data) / 8)):]
 
             def get_imag_norm_squared(phi):
-                temp = np.imag(fit_set * np.exp(1j * phi))
-                return np.dot(temp, temp)
+                spec_imag = np.imag(fit_set * np.exp(1j * phi))
+                return np.dot(spec_imag, spec_imag)
 
             # Find Phi that minimizes norm of imaginary data
             phi = minimize(get_imag_norm_squared, phi0)
             phi = phi.x
-            temp = cData * np.exp(1j * phi)
+            spec_imag = complex_data * np.exp(1j * phi)
 
             # Test for 180 degree inversion of real data
-            if np.real(temp).sum() < 0:
+            if np.real(spec_imag).sum() < 0:
                 phi = phi + np.pi
 
             self.phi = phi
 
-        cData = cData * np.exp(1j * self.phi)
-        self.real = np.real(cData) / np.real(cData).max()
-        self.imag = np.imag(cData) / np.real(cData).max()
+        complex_data = complex_data * np.exp(1j * self.phi)
+        self.real = np.real(complex_data) / np.real(complex_data).max()
+        self.imag = np.imag(complex_data) / np.real(complex_data).max()
 
     def zero_time(self):
 
@@ -329,43 +329,43 @@ class DEERSpec:
             return np.dot(data, xData)
 
         # Interpolate data
-        freal = interp1d(self.time, self.real, 'cubic')
-        fimag = interp1d(self.time, self.imag, 'cubic')
+        f_spec_real = interp1d(self.time, self.real, 'cubic')
+        f_spec_imag = interp1d(self.time, self.imag, 'cubic')
 
         self.time = np.arange(self.time.min(), self.time.max())
-        self.real = freal(self.time)
-        self.imag = fimag(self.time)
+        self.real = f_spec_real(self.time)
+        self.imag = f_spec_imag(self.time)
 
         if not self.zt:
-            # ake zero_moment of all windows tx(tmax)/2 and find minimum
-            tmax = self.real.argmax()
-            half_tmax = int(tmax / 2)
+            # ake zero_moment of all windows tx(spec_max_idx)/2 and find minimum
+            spec_max_idx = self.real.argmax()
+            half_spec_max_idx = int(spec_max_idx / 2)
 
-            lFrame = tmax - half_tmax
-            uFrame = tmax + half_tmax + 1
+            lFrame = spec_max_idx - half_spec_max_idx
+            uFrame = spec_max_idx + half_spec_max_idx + 1
             low_moment = zero_moment(self.real[lFrame: uFrame])
 
             # Only look in first 500ns of data
-            for i in range(half_tmax, 500):
-                lFrame = i - half_tmax
-                uFrame = i + half_tmax + 1
+            for i in range(half_spec_max_idx, 500):
+                lFrame = i - half_spec_max_idx
+                uFrame = i + half_spec_max_idx + 1
 
                 test_moment = zero_moment(self.real[lFrame: uFrame])
 
                 if abs(test_moment) < abs(low_moment):
                     low_moment = test_moment
-                    tmax = i
+                    spec_max_idx = i
 
         else:
-            tmax = self.zt
+            spec_max_idx = self.zt
 
         # Adjust time to appropriate zero
-        self.time = self.time - self.time[tmax]
+        self.time = self.time - self.time[spec_max_idx]
 
         # Remove time < 0
-        self.time = self.time[tmax:]
-        self.real = self.real[tmax:]
-        self.imag = self.imag[tmax:]
+        self.time = self.time[spec_max_idx:]
+        self.real = self.real[spec_max_idx:]
+        self.imag = self.imag[spec_max_idx:]
 
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
 
@@ -402,8 +402,9 @@ class DEERSpec:
             self.background_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
 
-    def get_fit(self, alpha=None, true_min=False, method='nnls'):
-        self.method = method
+    def get_fit(self, alpha=None, true_min=False, fit_method='nnls'):
+
+        self.fit_method = fit_method
 
         if alpha is None and true_min:
 
@@ -421,29 +422,31 @@ class DEERSpec:
 
     def get_P(self, alpha):
 
-        if self.method=='nnls':
+        if self.fit_method== 'nnls':
             C = np.concatenate([self.K, alpha * self.L])
             d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
 
             P, _ = nnls(C, d)
 
-        elif self.kernel_len > 1024:
+        elif self.fit_method == 'tntnn':
             C = np.concatenate([self.K, alpha * self.L])
             d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
 
             P, _ = tntnn(C, d, use_AA=True)
 
-        else:
+        elif self.fit_method == 'nnls_gd':
             XTX = self.K.T.dot(self.K) + (alpha**2)*self.L.T.dot(self.L)
             XTY = self.K.T.dot(self.y)
 
             P = NNLS_GD(XTX, XTY)
 
-            # print('nnls:', time() - start)
-        temp_fit = self.K.dot(P) + self.y_offset
-        return P, temp_fit
+        elif self.fit_method == 'cvx':
+            P = get_P_cvx(alpha)
 
-    def get_P_cvex(self, alpha):
+        fit = self.K.dot(P) + self.y_offset
+        return P, fit
+
+    def get_P_cvx(self, alpha):
 
         # non-negative solution to get a non-negative P -- adapted from Stephan Rein's GloPel
         K = self.K
@@ -451,32 +454,32 @@ class DEERSpec:
         points = len(K)
 
         # Get initial matrices of optimization
-        preresult = (K.T.dot(K) + alpha * L.T.dot(L))
+        pre_result = (K.T.dot(K) + alpha * L.T.dot(L))
 
-        P = np.linalg.inv(preresult).dot(K.T).dot(self.y)
+        P = np.linalg.inv(pre_result).dot(K.T).dot(self.y)
         P = P.clip(min=0)
 
-        B = cvo.matrix(preresult)
+        B = cvo.matrix(pre_result)
         A = cvo.matrix(-(K.T.dot(self.y.T)))
 
         # Minimize with CVXOPT constrained to > 0
         lower_bound = cvo.matrix(np.zeros(points))
         G = -cvo.matrix(np.eye(points, points))
         cvo.solvers.options['show_progress'] = False
-        Z = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))['x']
-        Z = np.asarray(Z).reshape(points, )
-        temp_fit = K.dot(Z) + self.y_offset
-        return Z, temp_fit
+        P = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))['x']
+        P = np.asarray(P).reshape(points, )
+
+        return P
 
     def get_AIC_score(self, alpha, fit):
 
-        Serr = (self.y + self.y_offset) - fit
+        s_error = (self.y + self.y_offset) - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
 
         nt = self.kernel_len
-        score = nt * np.log((np.linalg.norm(Serr) ** 2) / nt) + (2 * np.trace(H_alpha))
+        score = nt * np.log((np.linalg.norm(s_error) ** 2) / nt) + (2 * np.trace(H_alpha))
 
         return score
 
@@ -492,12 +495,12 @@ class DEERSpec:
 
     def get_GCV_score(self, alpha, fit):
 
-        Serr = (self.y + self.y_offset) - fit
+        s_error = (self.y + self.y_offset) - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
         nt = self.kernel_len
-        score = np.linalg.norm(Serr) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
+        score = np.linalg.norm(s_error) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
         return score
 
 
