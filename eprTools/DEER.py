@@ -129,6 +129,8 @@ class DEERSpec:
                     # Skip blank lines and lines with comment chars
                     if line.startswith(("*", "#", "\n")):
                         continue
+
+                    # Add keywords to param_dict
                     else:
                         line = line.split()
                         try:
@@ -141,10 +143,12 @@ class DEERSpec:
         except OSError:
             print("Error: No parameter file found")
 
+        # Don't perform phase correction if experiment was not phase cycled
         do_phase = True
         if param_dict['PlsSPELLISTSlct'][0] == 'none':
             do_phase = False
 
+        # Calculate time axis data from experimental params
         points = int(param_dict['XPTS'][0])
         time_min = float(param_dict['XMIN'][0])
         time_width = float(param_dict['XWID'][0])
@@ -152,15 +156,22 @@ class DEERSpec:
         time_max = time_min + time_width
         time = np.linspace(time_min, time_max, points)
 
+        # Separate real and imaginary components of experimental spectrum
         spec_real = spec[0::2]
         spec_imag = spec[1::2]
 
+        # Construct DEERSpec object
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
 
     @classmethod
-    def from_array(cls, time, spec, r_min=15, r_max=80):
-        spec_imag = np.zeros(len(spec))
-        return cls(time, spec, spec_imag, r_min, r_max, do_phase=False)
+    def from_array(cls, time, spec_real, spec_imag,  r_min=15, r_max=80):
+
+        # Create 0 vector for imaginary component if it is not provided
+        if not spec_imag:
+            spec_imag = np.zeros(len(spec_real))
+
+        # Construct DEERSpec object
+        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=False)
 
     def _update(self):
         """
@@ -185,42 +196,65 @@ class DEERSpec:
 
         See Also
         --------
-        set_kernlel_r
+        set_kernel_r
 
         Examples
         --------
-        >>> d = {'col1': [1, 2, 3], 'col2': [4, 5, 6]}
-        >>> df = pd.DataFrame(d)
-        >>> print(df.to_string())
-           col1  col2
-        0     1     4
-        1     2     5
-        2     3     6
+
         """
         self.kernel_len = length
         self.r = np.linspace(self.r_min, self.r_max, self.kernel_len)
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
         self._update()
 
-    def get_L_curve(self, length=82, set_alpha=False):
+    def get_L_curve(self, length=80, set_alpha=False):
+        """
+        returns L-curve and optimal alpha index
 
+        length: int, default 80
+            number of alpha values to test when calculating L-curve
+        set_alpha: boolean, default False
+            set object attribute self.alpha after calculating L-curve and determining optimal alpha. Should only be
+            required by get_fit()
+
+        See Also
+        --------
+        get_fit
+
+        Examples
+        --------
+        >>> import matplotlib.pyplot as plt
+        >>> from eprTools import DEERSpec
+        >>> spc = DEERSpec.from_file('Example_DEER.DTA')
+        >>> spc.get_fit()
+        >>> rho, eta, idx = spc.get_L_curve()
+        >>> plt.plot(rho, eta)
+        >>> plt.scatter(rho[idx], eta[idx], c='r')
+        >>> plt.show()
+        """
+
+        # Test if L-curve has already been calculated
         if self.alpha_idx:
             return self.rho, self.eta, self.alpha_idx
 
         else:
-
+            # If alpha is already defined construct L-curve centered around it
             if self.alpha:
                 log_min = np.logspace(np.log10(self.alpha) - 4, np.log10(self.alpha), np.floor(length / 2))
                 log_max = np.logspace(np.log10(self.alpha), np.log10(self.alpha) + 4, np.ceil(length / 2))
                 alpha_list = np.concatenate([log_min, log_max])
+            # Else center L-curve at 1
+            # TODO: implement dynamic choice of L-curve range to account for dynamic kernels
             else:
                 alpha_list = np.logspace(-4, 4, length)
 
+            # Preallocate L-Curve data
             rho = np.zeros(len(alpha_list))
             eta = np.zeros(len(alpha_list))
             best_alpha_score = 100000
             best_alpha = 1
 
+            # Compute (gcv or aic) score of each alpha and store the optimal alpha and score
             for i, alpha in enumerate(alpha_list):
                 P, temp_fit = self.get_P(alpha)
                 Serr = (self.y + self.y_offset) - temp_fit
@@ -234,19 +268,35 @@ class DEERSpec:
             if set_alpha:
                 self.alpha = best_alpha
 
+            # determine closest alpha in to object defined alpha and determine alpha idx
             difference = np.abs(alpha_list - self.alpha)
-
             self.alpha_idx = np.argmin(difference)
             self.rho = rho
             self.eta = eta
 
             return self.rho, self.eta, self.alpha_idx
 
-    def set_kernel_r(self, rmin=15, rmax=80):
+    def set_kernel_r(self, r_min=15, r_max=80):
+        """
+        Set the distance range of the kernel
+        r_min: int, float, default 15
+            minimum distance value of kernel in angstroms
+        r_max: int, float, default 80
+            maximum distance value of kernel in angstroms
 
-        self.r = np.linspace(rmin, rmax, self.kernel_len)
-        self.r_min = rmin
-        self.r_max = rmax
+        See Also
+        --------
+        set_kernel_len
+
+        Examples
+        --------
+        >>> from eprTools import DEERSpec
+        >>>
+
+        """
+        self.r = np.linspace(r_min, r_max, self.kernel_len)
+        self.r_min = r_min
+        self.r_max = r_max
         self._update()
 
     def set_phase(self, phi=0, degrees=True):
