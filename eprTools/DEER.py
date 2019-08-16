@@ -6,20 +6,73 @@ from sklearn.linear_model.base import LinearModel
 from eprTools.tntnn import tntnn
 import matplotlib.pyplot as plt
 from time import time
+import cvxopt as cvo
 from numba import njit, cuda
 
 
 class DEERSpec:
+    """
+    Double elctron-electron resonance spectrum object created from a dipolar evolution trace.
 
-    def __init__(self, time, spec_real, spec_imag, rmin, rmax, do_phase):
+    ----------
+    time : ndarray
+        Time points of experimental trace in nanoseconds.
+    spec_real : ndarray
+        Real values of experimental DEER trace
+    spec_imag : ndarray
+        Imaginary values of experimental DEER trace
+    r_min : float, default 15.0
+        Minimum distance value in angstroms to include in kernel for fitting P(r). Distance less than r_min will not
+        be calculated as part of P(r). r_min should not be below 15 angstroms.
+    r_max : float, default 80.0
+        Maximum distance value in angstroms to include in kernel for fitting P(r). Note that large ranges of the kernel
+        increase the condition number making it harder to fit. Additionally large distances can easily be artifacts of
+        background correction and should evaluated critically with respect to the length of the time trace.
+    do_phase : boolean, default True
+        Perform phase correction on real and imaginary components fo DEER trace. Not necessary for simulated data.
+
+    Examples
+    --------
+    Constructing DEERSpec object from a bruker xepr file.
+
+    >>> from eprTools import DEERSpec
+    >>> import matplotlib.pyplot as plt
+    >>> spc = DEERSpec.from_file('file_name.DTA')
+    >>> plt.plot(spc.time spc.real, spc.time, spc.imag)
+    >>> plt.show()
+
+    Constructing DEERSpec from ndarray
+
+    >>> from scipy.stats import norm
+    >>> from scipy.integrate import trapz
+    >>> from eprTools.utils import  generate_kernel
+    >>> import numpy as np
+
+    >>> K = generate_kernel(rmin=15, rmax=80, time=5000, size=250)
+    >>> rv = norm(loc = 30, scale=3)
+    >>> r_min, r_max = 15, 80
+    >>> r = np.linspace(r_min, r_max, 250)
+    >>> P = rv.pdf(r)
+    >>>P = P / trapz(P, r)
+
+    >>> sim_spec = K.dot(P)
+    >>> spc = DEERSpec.from_array(time=np.linspace(0, 5000, len(sim_spec)), spec=sim_spec)
+
+    >>> spc.get_fit()
+    >>> fig, (ax1, ax2) = plt.subplots(2,1)
+    >>> ax1.plot(spc.fit_time, spc.fit, spc.time, spc.real, alpha = 0.5)
+    >>> ax2.plot(r, P, spc.r, spc.P / trapz(spc.P, spc.r), alpha = 0.5)
+    >>> plt.legend(['actual', 'predicted'])
+    >>> plt.show()
+    >>> plt.plot()
+    """
+
+    def __init__(self, time, spec_real, spec_imag, r_min, r_max, do_phase):
 
         # Working values
         self.time = time
         self.real = spec_real
         self.imag = spec_imag
-
-        # Interpolated values
-
 
         # Tikhonov fit results
         self.fit = None
@@ -31,10 +84,10 @@ class DEERSpec:
         self.fit_time = None
 
         # Kernel parameters
-        self.r_min = rmin
-        self.r_max = rmax
+        self.r_min = r_min
+        self.r_max = r_max
         self.kernel_len = 216
-        self.r = np.linspace(rmin, rmax, self.kernel_len)
+        self.r = np.linspace(r_min, r_max, self.kernel_len)
 
         # Default phase and trimming parameters
         self.phi = None
@@ -58,7 +111,7 @@ class DEERSpec:
         self.raw_spec_real = spec_real
         self.raw_spec_imag = spec_imag
 
-        self.update()
+        self._update()
 
     @classmethod
     def from_file(cls, file_name, r_min=15, r_max=80):
@@ -109,7 +162,10 @@ class DEERSpec:
         spec_imag = np.zeros(len(spec))
         return cls(time, spec, spec_imag, r_min, r_max, do_phase=False)
 
-    def update(self):
+    def _update(self):
+        """
+        Update all self variables except fit. internal use only.
+        """
 
         self.trim()
         self.zero_time()
@@ -120,12 +176,31 @@ class DEERSpec:
         self.correct_background()
         self.compute_kernel()
 
-    def set_kernel_len(self, length):
+    def set_kernel_len(self, length=250):
+        """
+        Change the size of the kernel. Does not change the range of time or distance
 
+        length : int, default=250
+            length of kernel array. Note that large kernels require more time to fit.
+
+        See Also
+        --------
+        set_kernlel_r
+
+        Examples
+        --------
+        >>> d = {'col1': [1, 2, 3], 'col2': [4, 5, 6]}
+        >>> df = pd.DataFrame(d)
+        >>> print(df.to_string())
+           col1  col2
+        0     1     4
+        1     2     5
+        2     3     6
+        """
         self.kernel_len = length
         self.r = np.linspace(self.r_min, self.r_max, self.kernel_len)
         self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
-        self.update()
+        self._update()
 
     def get_L_curve(self, length=82, set_alpha=False):
 
@@ -172,7 +247,7 @@ class DEERSpec:
         self.r = np.linspace(rmin, rmax, self.kernel_len)
         self.r_min = rmin
         self.r_max = rmax
-        self.update()
+        self._update()
 
     def set_phase(self, phi=0, degrees=True):
 
@@ -181,29 +256,29 @@ class DEERSpec:
         elif degrees:
             self.phi = phi * np.pi / 180.0
 
-        self.update()
+        self._update()
 
     def set_trim(self, trim=None):
 
         self.trim_length = trim
-        self.update()
+        self._update()
 
     def set_zero_time(self, zt=None):
 
         self.zt = zt;
-        self.update()
+        self._update()
 
     def set_background_correction(self, kind='3D', k=1, fit_time=None):
 
         self.background_kind = kind
         self.background_k = k
         self.background_fit_t = fit_time
-        self.update()
+        self._update()
 
     def set_L_criteria(self, mode):
 
         self.L_criteria = mode
-        self.update()
+        self._update()
 
     def compute_kernel(self):
 
@@ -402,6 +477,7 @@ class DEERSpec:
             self.background_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
 
+
     def get_fit(self, alpha=None, true_min=False, fit_method='nnls'):
 
         self.fit_method = fit_method
@@ -441,8 +517,10 @@ class DEERSpec:
             P = NNLS_GD(XTX, XTY)
 
         elif self.fit_method == 'cvx':
-            P = get_P_cvx(alpha)
+            P = self.get_P_cvx(alpha)
 
+        else:
+            raise NameError('Fit method {} is not supported'.format(self.fit_method))
         fit = self.K.dot(P) + self.y_offset
         return P, fit
 
@@ -508,12 +586,13 @@ class DEERSpec:
 #cp = cProfile.Profile()
 
 
-def do_it_for_me(filename, true_min=False, method = 'nnls'):
+def do_it_for_me(filename, true_min=False, fit_method='nnls'):
     #cp.enable()
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.get_fit(true_min = true_min, method = method)
+    spc.get_fit(true_min=true_min, fit_method=fit_method)
     t2 = time()
+    print(spc.background_param)
     #cp.disable()
 
     #cp.print_stats()
