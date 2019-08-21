@@ -7,7 +7,8 @@ from eprTools.tntnn import tntnn
 import matplotlib.pyplot as plt
 from time import time
 import cvxopt as cvo
-from numba import njit, cuda
+from numba import njit
+from copy import deepcopy
 
 
 class DEERSpec:
@@ -173,6 +174,9 @@ class DEERSpec:
         # Construct DEERSpec object
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=False)
 
+    def copy(self):
+        return deepcopy(self)
+
     def _update(self):
         """
         Update all self variables except fit. internal use only.
@@ -291,16 +295,41 @@ class DEERSpec:
         Examples
         --------
         >>> from eprTools import DEERSpec
-        >>>
-
+        >>> import matplotlib.pyplot as plt
+        >>> spc = DEERSpec('Example_DEER.DTA')
+        >>> spc.get_fit()
+        >>> plt.plot(spc.r, spc.P)
+        >>> spc.set_kernel_len(r_min=20, r_max=60)
+        >>> spc.get_fit()
+        >>> plt.plot(spc.r, spc.P)
+        >>> plt.show()
         """
+
         self.r = np.linspace(r_min, r_max, self.kernel_len)
         self.r_min = r_min
         self.r_max = r_max
         self._update()
 
     def set_phase(self, phi=0, degrees=True):
+        """
+        Manually set phase to adjust signal between real and imaginary components
 
+        :param phi: float
+            Angle to set the phase to
+        :param degrees: bool, default True
+            Use unit degrees. If set to False phi will be assumed to be in radians.
+
+        Examples
+        --------
+        >>> from eprTools import DEERSpec
+        >>> import matplotlib.pyplot as plt
+        >>> spc = DEERSpec.from_file('Example_DEER.DTA')
+        >>> plt.plot(spc.time, spc.real, spc.time, spc.imag, label = ['real', 'imaginary'])
+        >>> spc.set_phase(90.0)
+        >>> plt.plot(spc.time, spc.real, spc.time, spc.imag, label = ['real', 'imaginary'])
+        >>> plt.show()
+
+        """
         if not degrees:
             self.phi = phi
         elif degrees:
@@ -439,8 +468,12 @@ class DEERSpec:
             self.phi = phi
 
         complex_data = complex_data * np.exp(1j * self.phi)
-        self.real = np.real(complex_data) / np.real(complex_data).max()
-        self.imag = np.imag(complex_data) / np.real(complex_data).max()
+        max_val = max([complex_data.real.min(), complex_data.real.max(),
+                    complex_data.imag.min(), complex_data.imag.max()], key=abs)
+
+        self.imag = np.imag(complex_data) / max_val
+        self.real = np.real(complex_data) / max_val
+
 
     def zero_time(self):
 
@@ -513,7 +546,7 @@ class DEERSpec:
             def homogeneous_3d(t, a, k, j):
                 return a * np.exp(-k * (t ** (d / 3)) + j)
 
-            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0=(1, 1e-5, 1e-2))
+            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0=(1, 1e-5, -4e-1))
 
             self.background = homogeneous_3d(self.time, *popt)
             self.background_param = popt
@@ -527,13 +560,11 @@ class DEERSpec:
             self.background_param = popt
             self.dipolar_evolution = self.real - np.polyval(popt, self.time) + popt[-1]
 
-
-    def get_fit(self, alpha=None, true_min=False, fit_method='nnls'):
+    def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
         self.fit_method = fit_method
 
         if alpha is None and true_min:
-
             res = minimize(self.get_score, 1, method='Nelder-Mead')
             self.alpha = res.x
 
@@ -576,14 +607,14 @@ class DEERSpec:
 
     def get_P_cvx(self, alpha):
 
-        # non-negative solution to get a non-negative P -- adapted from Stephan Rein's GloPel
         K = self.K
         L = self.L
-        points = len(K)
+        points = self.kernel_len
 
         # Get initial matrices of optimization
         pre_result = (K.T.dot(K) + alpha * L.T.dot(L))
 
+        # get unconstrained solution as starting point.
         P = np.linalg.inv(pre_result).dot(K.T).dot(self.y)
         P = P.clip(min=0)
 
@@ -632,20 +663,13 @@ class DEERSpec:
         return score
 
 
-#import cProfile
-#cp = cProfile.Profile()
-
-
 def do_it_for_me(filename, true_min=False, fit_method='nnls'):
-    #cp.enable()
     t1 = time()
     spc = DEERSpec.from_file(filename)
+    spc.set_background_correction(kind='poly', k=2)
     spc.get_fit(true_min=true_min, fit_method=fit_method)
     t2 = time()
-    print(spc.background_param)
-    #cp.disable()
 
-    #cp.print_stats()
     print("Fit computed in {}".format(t2 - t1))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
     ax1.plot(spc.time, spc.dipolar_evolution)
