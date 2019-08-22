@@ -16,20 +16,20 @@ class DEERSpec:
     Double elctron-electron resonance spectrum object created from a dipolar evolution trace.
 
     ----------
-    time : ndarray
+    :param time : ndarray
         Time points of experimental trace in nanoseconds.
-    spec_real : ndarray
+    :param spec_real : ndarray
         Real values of experimental DEER trace
-    spec_imag : ndarray
+    :param spec_imag : ndarray
         Imaginary values of experimental DEER trace
-    r_min : float, default 15.0
+    :param r_min : float, default 15.0
         Minimum distance value in angstroms to include in kernel for fitting P(r). Distance less than r_min will not
         be calculated as part of P(r). r_min should not be below 15 angstroms.
-    r_max : float, default 80.0
+    :param r_max : float, default 80.0
         Maximum distance value in angstroms to include in kernel for fitting P(r). Note that large ranges of the kernel
         increase the condition number making it harder to fit. Additionally large distances can easily be artifacts of
         background correction and should evaluated critically with respect to the length of the time trace.
-    do_phase : boolean, default True
+    :param do_phase : boolean, default True
         Perform phase correction on real and imaginary components fo DEER trace. Not necessary for simulated data.
 
     Examples
@@ -195,7 +195,7 @@ class DEERSpec:
         """
         Change the size of the kernel. Does not change the range of time or distance
 
-        length : int, default=250
+        :param length : int, default=250
             length of kernel array. Note that large kernels require more time to fit.
 
         See Also
@@ -213,11 +213,11 @@ class DEERSpec:
 
     def get_L_curve(self, length=80, set_alpha=False):
         """
-        returns L-curve and optimal alpha index
+        Computes and returns L-curve and optimal alpha index
 
-        length: int, default 80
+        :param length: int, default 80
             number of alpha values to test when calculating L-curve
-        set_alpha: boolean, default False
+        :param set_alpha: boolean, default False
             set object attribute self.alpha after calculating L-curve and determining optimal alpha. Should only be
             required by get_fit()
 
@@ -283,9 +283,9 @@ class DEERSpec:
     def set_kernel_r(self, r_min=15, r_max=80):
         """
         Set the distance range of the kernel
-        r_min: int, float, default 15
+        :param r_min: int, float, default 15
             minimum distance value of kernel in angstroms
-        r_max: int, float, default 80
+        :param r_max: int, float, default 80
             maximum distance value of kernel in angstroms
 
         See Also
@@ -466,13 +466,12 @@ class DEERSpec:
                 phi = phi + np.pi
 
             self.phi = phi
+            self.phase_max = complex_data.real.max()
 
         complex_data = complex_data * np.exp(1j * self.phi)
-        max_val = max([complex_data.real.min(), complex_data.real.max(),
-                    complex_data.imag.min(), complex_data.imag.max()], key=abs)
 
-        self.imag = np.imag(complex_data) / max_val
-        self.real = np.real(complex_data) / max_val
+        self.imag = np.imag(complex_data) / self.phase_max
+        self.real = np.real(complex_data) / self.phase_max
 
 
     def zero_time(self):
@@ -546,7 +545,8 @@ class DEERSpec:
             def homogeneous_3d(t, a, k, j):
                 return a * np.exp(-k * (t ** (d / 3)) + j)
 
-            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real, p0=(1, 1e-5, -4e-1))
+            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
+                                   p0=(1., 1e-5, -4e-1), bounds=[(-1, 1e-7, -7e-1), (1, 1e-3, 7e-1)])
 
             self.background = homogeneous_3d(self.time, *popt)
             self.background_param = popt
@@ -619,6 +619,7 @@ class DEERSpec:
         P = P.clip(min=0)
 
         B = cvo.matrix(pre_result)
+
         A = cvo.matrix(-(K.T.dot(self.y.T)))
 
         # Minimize with CVXOPT constrained to > 0
@@ -731,8 +732,9 @@ def solveNQP(Q, q, epsilon, max_n_iter):
 
     # Return
     return x
-#TODO Prcompile NNLS algorithm
-#@njit
+
+
+@njit
 def NNLS_GD(XTX, XTY, epsilon=1e-8):
     max_n_iter = 5 * XTX.shape[1]
 
