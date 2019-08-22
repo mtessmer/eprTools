@@ -165,7 +165,7 @@ class DEERSpec:
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
 
     @classmethod
-    def from_array(cls, time, spec_real, spec_imag,  r_min=15, r_max=80):
+    def from_array(cls, time, spec_real, spec_imag, r_min=15, r_max=80):
 
         # Create 0 vector for imaginary component if it is not provided
         if not spec_imag:
@@ -175,6 +175,9 @@ class DEERSpec:
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=False)
 
     def copy(self):
+        """
+        Create a deep copy of the DEERSpec object.
+        """
         return deepcopy(self)
 
     def _update(self):
@@ -281,6 +284,7 @@ class DEERSpec:
             return self.rho, self.eta, self.alpha_idx
 
     def set_kernel_r(self, r_min=15, r_max=80):
+
         """
         Set the distance range of the kernel
         :param r_min: int, float, default 15
@@ -338,28 +342,67 @@ class DEERSpec:
         self._update()
 
     def set_trim(self, trim=None):
+        """
+        Sets the time length (in ns) of the experimental dipolar evolution. Generally used to remove noisy data at  the
+        end of a trace.
 
+        :param trim: int
+            length of the desired time trace in nanoseconds
+        """
         self.trim_length = trim
         self._update()
 
     def set_zero_time(self, zt=None):
+        """
+        Set the zero time of the dipolar evolution
+
+        :param zt: int,
+            new zero time (ns)
+        """
 
         self.zt = zt;
         self._update()
 
+    # TODO Update to use Luis's background correction method
     def set_background_correction(self, kind='3D', k=1, fit_time=None):
+        """
+        Perform background correction.
 
+        :param kind: string, default '3D'
+            Function used to correct background. Use one of ['3D', '2D', 'poly']
+        :param k: int, default 1
+            Order used for polynomial fit
+        :param fit_time: int, default None
+            Length of the experimental trace to be used for fitting the background correction
+
+        """
         self.background_kind = kind
         self.background_k = k
         self.background_fit_t = fit_time
         self._update()
 
     def set_L_criteria(self, mode):
+        """
+        Set the selection criteria for choosing the optimal smoothing parameter (alpha).
 
+        :param mode: string
+            Method used to score selection of smoothing parameter. Choose one of ['gcv', 'aic']
+        """
         self.L_criteria = mode
         self._update()
 
     def compute_kernel(self):
+        """
+        Computes kernel in accordance with the default kernel parameters or kernel parameters set with the set helper
+        functions. This should only be used internally. See utils.generate_kernel function to construct kernels
+        independent of a DEERSpec object.
+
+        See Also
+        --------
+        set_kernel_len
+        set_kernel_r
+        utils.generate_kernel
+        """
 
         # Compute Kernel
         omega_dd = (2 * np.pi * 52.0410) / (self.r ** 3)
@@ -473,7 +516,6 @@ class DEERSpec:
         self.imag = np.imag(complex_data) / self.phase_max
         self.real = np.real(complex_data) / self.phase_max
 
-
     def zero_time(self):
 
         def zero_moment(data):
@@ -579,7 +621,7 @@ class DEERSpec:
 
     def get_P(self, alpha):
 
-        if self.fit_method== 'nnls':
+        if self.fit_method == 'nnls':
             C = np.concatenate([self.K, alpha * self.L])
             d = np.concatenate([self.y, np.zeros(shape=self.kernel_len - 2)])
 
@@ -592,7 +634,7 @@ class DEERSpec:
             P, _ = tntnn(C, d, use_AA=True)
 
         elif self.fit_method == 'nnls_gd':
-            XTX = self.K.T.dot(self.K) + (alpha**2)*self.L.T.dot(self.L)
+            XTX = self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)
             XTY = self.K.T.dot(self.y)
 
             P = NNLS_GD(XTX, XTY)
@@ -643,7 +685,7 @@ class DEERSpec:
 
         return score
 
-    def get_score(self, alpha, fit = None):
+    def get_score(self, alpha, fit=None):
 
         if fit is None:
             P, fit = self.get_P(alpha)
@@ -691,6 +733,7 @@ def do_it_for_me(filename, true_min=False, fit_method='nnls'):
 
     print(spc.alpha)
 
+
 @njit
 def solveNQP(Q, q, epsilon, max_n_iter):
     # Initialize
@@ -700,7 +743,6 @@ def solveNQP(Q, q, epsilon, max_n_iter):
     x_diff = np.zeros(n_cols)
     grad_f = q.copy()
     grad_f_bar = q.copy()
-    
 
     # Loop over iterations  
     for i in range(max_n_iter):
@@ -714,7 +756,7 @@ def solveNQP(Q, q, epsilon, max_n_iter):
         grad_norm = np.vdot(grad_f_bar, grad_f_bar)
 
         # Abort?
-        if (~passive_set.any() or grad_norm < epsilon):
+        if ~passive_set.any() or grad_norm < epsilon:
             break
 
         # Exact line search
@@ -740,11 +782,11 @@ def NNLS_GD(XTX, XTY, epsilon=1e-8):
 
     # Normalization factors
     H_diag = np.diag(XTX).copy().flatten()
-    Q_den  = np.sqrt(np.outer(H_diag, H_diag))
-    q_den  = np.sqrt(H_diag)
+    Q_den = np.sqrt(np.outer(H_diag, H_diag))
+    q_den = np.sqrt(H_diag)
 
     # Normalize
-    Q =  XTX / Q_den
+    Q = XTX / Q_den
     q = -XTY / q_den
     # Solve NQP
     y = solveNQP(Q, q, epsilon, max_n_iter)
@@ -754,6 +796,7 @@ def NNLS_GD(XTX, XTY, epsilon=1e-8):
 
     # Return
     return x.T
+
 
 @njit
 def NNLS_CD(XTX, XTY, epsilon=1e-8):
