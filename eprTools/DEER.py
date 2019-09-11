@@ -140,7 +140,9 @@ class DEERSpec:
                         except IndexError:
                             key = line
                             val = None
-                        param_dict[key] = val
+
+                        if key:
+                            param_dict[key] = val
         except OSError:
             print("Error: No parameter file found")
 
@@ -154,6 +156,11 @@ class DEERSpec:
         time_min = float(param_dict['XMIN'][0])
         time_width = float(param_dict['XWID'][0])
 
+        if 'YPTS' in param_dict.keys():
+            n_scans = int(param_dict['YPTS'][0])
+        else:
+            n_scans = 1
+
         time_max = time_min + time_width
         time = np.linspace(time_min, time_max, points)
 
@@ -161,18 +168,37 @@ class DEERSpec:
         spec_real = spec[0::2]
         spec_imag = spec[1::2]
 
+        if n_scans > 1:
+            spec_real = spec_real.reshape(n_scans, points)[10:]
+            spec_imag = spec_imag.reshape(n_scans, points)[10:]
+
+            # Delete zeros at end of array (uncompleted scans)
+            while np.array_equal(spec_real[-1], np.zeros_like(spec_real[-1])):
+                spec_real = np.delete(spec_real, -1, 0)
+                spec_imag = np.delete(spec_imag, -1, 0)
+
+            spec_real = np.delete(spec_real, -1, 0)
+            spec_imag = np.delete(spec_imag, -1, 0)
+
+            # Roll with the mean for now. Implement usage of individual scans in the future.
+            spec_real = spec_real.mean(axis=0)
+            spec_imag = spec_imag.mean(axis=0)
+
         # Construct DEERSpec object
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
 
     @classmethod
-    def from_array(cls, time, spec_real, spec_imag, r_min=15, r_max=80):
+    def from_array(cls, time, spec_real, spec_imag = None, r_min=15, r_max=80):
+
+        do_phase = False
 
         # Create 0 vector for imaginary component if it is not provided
-        if not spec_imag:
+        if not np.any(spec_imag):
             spec_imag = np.zeros(len(spec_real))
+            do_phase = 'True'
 
         # Construct DEERSpec object
-        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=False)
+        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=True)
 
     def copy(self):
         """
@@ -440,7 +466,7 @@ class DEERSpec:
         self.time = self.raw_time
 
         # normalize working values
-        if min(self.real < 0):
+        if min(self.real) < 0:
             self.real = self.real - 2 * min(self.real)
 
             self.imag = self.imag / max(self.real)
@@ -509,9 +535,10 @@ class DEERSpec:
                 phi = phi + np.pi
 
             self.phi = phi
-            self.phase_max = complex_data.real.max()
+            
 
         complex_data = complex_data * np.exp(1j * self.phi)
+        self.phase_max = complex_data.real.max()
 
         self.imag = np.imag(complex_data) / self.phase_max
         self.real = np.real(complex_data) / self.phase_max
@@ -572,7 +599,7 @@ class DEERSpec:
 
         # calculate t0 for fit_t if none given
         if not self.background_fit_t:
-            self.background_fit_t = (int(len(self.time) / 8))
+            self.background_fit_t = (int(len(self.time) / 4))
 
         # Use last 3/4 of data to fit background
         fit_time = self.time[self.background_fit_t:]
@@ -664,7 +691,7 @@ class DEERSpec:
 
         A = cvo.matrix(-(K.T.dot(self.y.T)))
 
-        # Minimize with CVXOPT constrained to > 0
+        # Minimize with CVXOPT constrained to P >= 0
         lower_bound = cvo.matrix(np.zeros(points))
         G = -cvo.matrix(np.eye(points, points))
         cvo.solvers.options['show_progress'] = False
