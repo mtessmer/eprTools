@@ -10,6 +10,7 @@ for fit_method in fit_methods:
     do_it_for_me('Example_DEER.DTA', fit_method=fit_method)
 
 
+
 #spc = DEERSpec.from_file('Example_DEER.DTA')
 
 #spc.set_kernel_r(rmin=15, rmax=80)
