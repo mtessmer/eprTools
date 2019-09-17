@@ -12,7 +12,7 @@ from copy import deepcopy
 
 class DEERSpec:
     """
-    Double elctron-electron resonance spectrum object created from a dipolar evolution trace.
+    Double elctron-electron resonance spectrum object created from numpy arrays or bruker file.
 
     ----------
     :param time : ndarray
@@ -289,7 +289,7 @@ class DEERSpec:
             # Compute (gcv or aic) score of each alpha and store the optimal alpha and score
             for i, alpha in enumerate(alpha_list):
                 P, temp_fit = self.get_P(alpha)
-                Serr = (self.dipolar_evolution + self.form_factor_offset) - temp_fit
+                Serr = self.form_factor - temp_fit
                 rho[i] = np.log(np.linalg.norm(Serr))
                 eta[i] = np.log(np.linalg.norm((np.dot(self.L, P))))
                 temp_score = self.get_score(alpha, temp_fit)
@@ -368,7 +368,7 @@ class DEERSpec:
 
     def set_trim(self, trim=None):
         """
-        Sets the time length (in ns) of the experimental dipolar evolution. Generally used to remove noisy data at  the
+        Sets the time length (in ns) of the experimental form factor. Generally used to remove noisy data at  the
         end of a trace.
 
         :param trim: int
@@ -379,7 +379,7 @@ class DEERSpec:
 
     def set_zero_time(self, zt=None):
         """
-        Set the zero time of the dipolar evolution
+        Set the zero time of the form factor.
 
         :param zt: int,
             new zero time (ns)
@@ -388,7 +388,6 @@ class DEERSpec:
         self.zt = zt;
         self._update()
 
-    # TODO Update to use Luis's background correction method
     def set_background_correction(self, kind='3D', k=1, fit_time=None):
         """
         Perform background correction.
@@ -453,15 +452,12 @@ class DEERSpec:
         f = interp1d(self.time, self.form_factor)
         form_factor = f(self.fit_time)
 
-        K_offset = np.average(K, axis=0)
-        K -= K_offset
+        B = homogeneous_3d(self.fit_time, self.background_param[0], self.background_param[1], self.d)
 
-        form_factor_offset = np.average(form_factor, axis=0)
-        dipolar_evolution = form_factor - form_factor_offset
+        K = (((self.background_param[1]) + (1 - self.background_param[1] )* K).T * B).T
 
         self.K = K
-        self.dipolar_evolution = dipolar_evolution
-        self.form_factor_offset = form_factor_offset
+        self.form_factor = form_factor
         self.L = L
 
     def trim(self):
@@ -616,20 +612,19 @@ class DEERSpec:
             elif self.background_kind == '3D':
                 self.d = 3
 
-            popt, pcov = curve_fit(lambda t, a, k, j, : homogeneous_3d(t, a, k, j, self.d), fit_time, fit_real,
-                                   p0=(1., 1e-5, -4e-1), bounds=[(-1, 1e-7, -7e-1), (1, 1e-3, 7e-1)])
+            popt, pcov = curve_fit(lambda t, k, a: homogeneous_3d(t, k, a, self.d), fit_time, fit_real,
+                                   p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-3, 1)])
 
             self.background = homogeneous_3d(self.time, *popt, self.d)
             self.background_param = popt
-
-            self.form_factor = self.real - homogeneous_3d(self.time, *popt, self.d) + (popt[0] * np.exp(popt[2]))
+            self.form_factor = self.real #/ homogeneous_3d(self.time, *popt, self.d) #+ (popt[0] * np.exp(popt[2]))
 
         elif self.background_kind == 'poly':
 
             popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
             self.background = np.polyval(popt, self.time)
             self.background_param = popt
-            self.form_factor = self.real - np.polyval(popt, self.time) + popt[-1]
+            self.form_factor = self.real #- np.polyval(popt, self.time) + popt[-1]
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
@@ -652,19 +647,19 @@ class DEERSpec:
 
         if self.fit_method == 'nnls':
             C = np.concatenate([self.K, alpha * self.L])
-            d = np.concatenate([self.dipolar_evolution, np.zeros(shape=self.kernel_len - 2)])
+            d = np.concatenate([self.form_factor, np.zeros(shape=self.kernel_len - 2)])
 
             P, _ = nnls(C, d)
 
         elif self.fit_method == 'tntnn':
             C = np.concatenate([self.K, alpha * self.L])
-            d = np.concatenate([self.dipolar_evolution, np.zeros(shape=self.kernel_len - 2)])
+            d = np.concatenate([self.form_factor, np.zeros(shape=self.kernel_len - 2)])
 
             P, _ = tntnn(C, d, use_AA=True)
 
         elif self.fit_method == 'nnls_gd':
             XTX = self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L)
-            XTY = self.K.T.dot(self.dipolar_evolution)
+            XTY = self.K.T.dot(self.form_factor)
 
             P = NNLS_GD(XTX, XTY)
 
@@ -673,7 +668,7 @@ class DEERSpec:
 
         else:
             raise NameError('Fit method {} is not supported'.format(self.fit_method))
-        fit = self.K.dot(P) + self.form_factor_offset
+        fit = self.K.dot(P)
         return P, fit
 
     def get_P_cvx(self, alpha):
@@ -686,17 +681,19 @@ class DEERSpec:
         pre_result = (K.T.dot(K) + alpha * L.T.dot(L))
 
         # get unconstrained solution as starting point.
-        P = np.linalg.inv(pre_result).dot(K.T).dot(self.dipolar_evolution)
+        P = np.linalg.inv(pre_result).dot(K.T).dot(self.form_factor)
         P = P.clip(min=0)
 
         B = cvo.matrix(pre_result)
 
-        A = cvo.matrix(-(K.T.dot(self.dipolar_evolution.T)))
+        A = cvo.matrix(-(K.T.dot(self.form_factor.T)))
 
         # Minimize with CVXOPT constrained to P >= 0
         lower_bound = cvo.matrix(np.zeros(points))
         G = -cvo.matrix(np.eye(points, points))
         cvo.solvers.options['show_progress'] = False
+        cvo.solvers.options['abstol'] = 1e-8
+        cvo.solvers.options['reltol'] = 1e-7
         P = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))['x']
         P = np.asarray(P).reshape(points, )
 
@@ -704,7 +701,7 @@ class DEERSpec:
 
     def get_AIC_score(self, alpha, fit):
 
-        s_error = (self.dipolar_evolution + self.form_factor_offset) - fit
+        s_error = self.form_factor - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
@@ -726,7 +723,7 @@ class DEERSpec:
 
     def get_GCV_score(self, alpha, fit):
 
-        s_error = (self.dipolar_evolution + self.form_factor_offset) - fit
+        s_error = self.form_factor - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
@@ -735,22 +732,23 @@ class DEERSpec:
         return score
 
 
-def homogeneous_3d(t, a, k, j, d):
-    return a * np.exp(-k * (t ** (d / 3)) + j)
+def homogeneous_3d(t, k, a, d):
+    return a * np.exp(-k * (t ** (d / 3)))
+
 
 def do_it_for_me(filename, true_min=False, fit_method='nnls'):
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.set_background_correction(kind='poly', k=2)
+    spc.set_background_correction(kind='3D', k=2)
     spc.get_fit(true_min=true_min, fit_method=fit_method)
     t2 = time()
 
     print("Fit computed in {}".format(t2 - t1))
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
-    ax1.plot(spc.time, spc.form_factor)
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=[30, 10.5])
+    ax1.plot(spc.time, spc.real)
     ax1.plot(spc.fit_time, spc.fit)
+    ax1.plot(spc.time, spc.background)
     ax2.plot(spc.r, spc.P)
-    plt.show()
 
     # Get L-curve
     t1 = time()
@@ -758,9 +756,8 @@ def do_it_for_me(filename, true_min=False, fit_method='nnls'):
     t2 = time()
     print("L-curve computed in {}".format(t2 - t1))
 
-    fig2, ax = plt.subplots()
-    ax.scatter(rho, eta)
-    ax.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
+    ax3.scatter(rho, eta)
+    ax3.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
     plt.show()
 
     print(spc.alpha)
