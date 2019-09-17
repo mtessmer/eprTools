@@ -612,20 +612,17 @@ class DEERSpec:
 
         if self.background_kind in ['3D', '2D']:
             if self.background_kind == '2D':
-                d = 2
+                self.d = 2
             elif self.background_kind == '3D':
-                d = 3
+                self.d = 3
 
-            def homogeneous_3d(t, a, k, j):
-                return a * np.exp(-k * (t ** (d / 3)) + j)
-
-            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
+            popt, pcov = curve_fit(lambda t, a, k, j, : homogeneous_3d(t, a, k, j, self.d), fit_time, fit_real,
                                    p0=(1., 1e-5, -4e-1), bounds=[(-1, 1e-7, -7e-1), (1, 1e-3, 7e-1)])
 
-            self.background = homogeneous_3d(self.time, *popt)
+            self.background = homogeneous_3d(self.time, *popt, self.d)
             self.background_param = popt
 
-            self.form_factor = self.real - homogeneous_3d(self.time, *popt) + (popt[0] * np.exp(popt[2]))
+            self.form_factor = self.real - homogeneous_3d(self.time, *popt, self.d) + (popt[0] * np.exp(popt[2]))
 
         elif self.background_kind == 'poly':
 
@@ -737,6 +734,9 @@ class DEERSpec:
         score = np.linalg.norm(s_error) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
         return score
 
+
+def homogeneous_3d(t, a, k, j, d):
+    return a * np.exp(-k * (t ** (d / 3)) + j)
 
 def do_it_for_me(filename, true_min=False, fit_method='nnls'):
     t1 = time()
