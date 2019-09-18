@@ -369,10 +369,20 @@ class DEERSpec:
     def set_trim(self, trim=None):
         """
         Sets the time length (in ns) of the experimental form factor. Generally used to remove noisy data at  the
-        end of a trace.
+        end of a trace cause by noise explosion or 2+1 artifacts.
 
         :param trim: int
             length of the desired time trace in nanoseconds
+
+        Examples
+        --------
+        >>> from eprTools import DEERSpec
+        >>> spc = DEERSpec.from_file('examples/Example_DEER.DTA')
+        >>> fig, ax = plt.subplots()
+        >>> ax.plot(spc.time, spc.real)
+        >>> spc.set_trim(2000)
+        >>> ax.plot(spc.time, spc.real)
+        >>> plt.show()
         """
         self.trim_length = trim
         self._update()
@@ -383,6 +393,16 @@ class DEERSpec:
 
         :param zt: int,
             new zero time (ns)
+
+        Examples
+        --------
+        >>> from eprTools import DEERSpec
+        >>> spc = DEERSpec.from_file('examples/Example_DEER.DTA')
+        >>> fig, ax = plt.subplots()
+        >>> ax.plot(spc.time, spc.real)
+        >>> spc.set_zero_time(50)
+        >>> ax.plot(spc.time, spc.real)
+        >>> plt.show()
         """
 
         self.zt = zt;
@@ -398,6 +418,16 @@ class DEERSpec:
             Order used for polynomial fit
         :param fit_time: int, default None
             Length of the experimental trace to be used for fitting the background correction
+
+        Examples
+        --------
+        >>> from eprTools import DEERSpec
+        >>> spc = DEERSpec.from_file('examples/Example_DEER.DTA')
+        >>> fig, ax = plt.subplots()
+        >>> ax.plot(spc.time, spc.real)
+        >>> spc.set_trim(2000)
+        >>> ax.plot(spc.time, spc.real)
+        >>> plt.show()
 
         """
         self.background_kind = kind
@@ -451,16 +481,21 @@ class DEERSpec:
         # Compress Data to kernel dimensions
         f = interp1d(self.time, self.form_factor)
         form_factor = f(self.fit_time)
+        if self.background_kind in ['3D', '2D']:
+            B = homogeneous_3d(self.fit_time, self.background_param[0], self.background_param[1], self.d)
+        elif self.background_kind == 'poly':
+            B = np.polyval(self.background_param, self.fit_time)
 
-        B = homogeneous_3d(self.fit_time, self.background_param[0], self.background_param[1], self.d)
-
-        K = (((self.background_param[1]) + (1 - self.background_param[1] )* K).T * B).T
+        K = ((1 - self.modulation_depth +  self.modulation_depth * K).T * B).T
 
         self.K = K
         self.form_factor = form_factor
         self.L = L
 
     def trim(self):
+        """
+        Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts.
+        """
 
         self.real = self.raw_spec_real
         self.imag = self.raw_spec_imag
@@ -616,15 +651,17 @@ class DEERSpec:
                                    p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-3, 1)])
 
             self.background = homogeneous_3d(self.time, *popt, self.d)
+            self.modulation_depth = 1 - popt[1]
             self.background_param = popt
-            self.form_factor = self.real #/ homogeneous_3d(self.time, *popt, self.d) #+ (popt[0] * np.exp(popt[2]))
+            self.form_factor = self.real
 
         elif self.background_kind == 'poly':
 
             popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
             self.background = np.polyval(popt, self.time)
+            self.modulation_depth = 1 - popt[-1]
             self.background_param = popt
-            self.form_factor = self.real #- np.polyval(popt, self.time) + popt[-1]
+            self.form_factor = self.real
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
@@ -736,7 +773,9 @@ def homogeneous_3d(t, k, a, d):
     return a * np.exp(-k * (t ** (d / 3)))
 
 
-def do_it_for_me(filename, true_min=False, fit_method='nnls'):
+def do_it_for_me(filename, true_min=False, fit_method='cvx'):
+    #plt.style.use('deer-epr')
+
     t1 = time()
     spc = DEERSpec.from_file(filename)
     spc.set_background_correction(kind='3D', k=2)
@@ -806,7 +845,7 @@ def solveNQP(Q, q, epsilon, max_n_iter):
 
 
 @njit
-def NNLS_GD(XTX, XTY, epsilon=1e-8):
+def NNLS_GD(XTX, XTY, epsilon=1e-10):
     max_n_iter = 5 * XTX.shape[1]
 
     # Normalization factors
@@ -828,7 +867,7 @@ def NNLS_GD(XTX, XTY, epsilon=1e-8):
 
 
 @njit
-def NNLS_CD(XTX, XTY, epsilon=1e-8):
+def NNLS_CD(XTX, XTY, epsilon=1e-10):
     max_n_iter = 5 * XTX.shape[1]
 
     # Initialize
