@@ -101,10 +101,12 @@ class DEERSpec:
         self.background_k = 1
         self.background_fit_t = None
 
+
         # Background correction results
         self.form_factor = None
         self.background = None
         self.background_param = None
+        self.modulation_depth = None
 
         # Raw Data Untouched
         self.raw_time = time
@@ -487,7 +489,8 @@ class DEERSpec:
         elif self.background_kind == 'poly':
             B = np.polyval(self.background_param, self.fit_time)
 
-        K = ((1 - self.modulation_depth +  self.modulation_depth * K).T * B).T
+        self.sqrt_B = np.sqrt(B)
+        K = ((1 - self.modulation_depth + self.modulation_depth * K).T * self.sqrt_B).T
 
         self.K = K
         self.form_factor = form_factor
@@ -659,15 +662,20 @@ class DEERSpec:
             self.background = homogeneous_3d(self.time, *popt, self.d)
             self.modulation_depth = 1 - popt[1]
             self.background_param = popt
-            self.form_factor = self.real
 
+            # Make partial background correction
+            self.form_factor = self.real / np.sqrt(self.background)
+            self.form_factor = self.form_factor / max(self.form_factor)
         elif self.background_kind == 'poly':
 
             popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
             self.background = np.polyval(popt, self.time)
             self.modulation_depth = 1 - popt[-1]
             self.background_param = popt
-            self.form_factor = self.real
+
+            # Make partial background correction
+            self.form_factor = self.real / np.sqrt(self.background)
+            self.form_factor = self.form_factor / max(self.form_factor)
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
@@ -684,6 +692,9 @@ class DEERSpec:
             self.alpha = alpha
 
         P, self.fit = self.get_P(self.alpha)
+
+        self.fit = self.fit * self.sqrt_B
+        self.fit = self.fit / max(self.fit)
         self.P = P / np.sum(P)
 
     def get_P(self, alpha):
