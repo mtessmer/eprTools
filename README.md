@@ -30,17 +30,21 @@ plt.show()
 import matplotlib.pyplot as plt
 from eprTools import DEERSpec
 
-# compute distance distribution
+# import data
 spc = DEERSpec.from_file('Example_DEER.DTA')
+
+# set kernel parameters
 spc.set_kernel_r(rmin=15, rmax=60)
 spc.set_kernel_len(250)
 
+# fit data
 spc.get_fit()
 
-# plot background corrected dipolar evolution, fit and distance distribution
+# plot form factor, background correction, fit and distance distribution
 fig, (ax1, ax2) = plt.subplots(1,2, figsize = [20, 10.5])
-ax1.plot(spc.time, spc.dipolar_evolution)
+ax1.plot(spc.time, spc.real)
 ax1.plot(spc.fit_time, spc.fit)
+ax1.plot(spc.time, spc.background)
 ax2.plot(spc.r, spc.P)
 plt.show()
 
