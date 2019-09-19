@@ -16,9 +16,11 @@ python setup.py install
 import matplotlib.pyplot as plt
 from eprTools import CWSpec
 
+# import EPR data
 mySpc1 = CWSpec.from_file('Example_Apo.DTA', preprocess = True)
 mySpc2 = CWSpec.from_file('Example_Holo.DTA', preprocess = True)
 
+# plot CW spectra
 plt.plot(mySpc1.field, mySpc1.spec)
 plt.plot(mySpc2.field, mySpc2.spec)
 plt.show()
