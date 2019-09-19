@@ -481,6 +481,7 @@ class DEERSpec:
         # Compress Data to kernel dimensions
         f = interp1d(self.time, self.form_factor)
         form_factor = f(self.fit_time)
+
         if self.background_kind in ['3D', '2D']:
             B = homogeneous_3d(self.fit_time, self.background_param[0], self.background_param[1], self.d)
         elif self.background_kind == 'poly':
@@ -523,6 +524,8 @@ class DEERSpec:
                     min_std = test_std
                     min_i = i
 
+            # Test for high noise at the tail of the form factor
+            # This is probably no longer necessary with the new background correction approach
             max_std = 3 * min_std
             cutoff = len(self.real)
 
@@ -546,6 +549,9 @@ class DEERSpec:
         self.imag = self.imag[:cutoff]
 
     def phase(self):
+        """
+        set phase to maximize signal in real component and minimize signal in imaginary component
+        """
 
         # Make complex array for phase adjustment
         complex_data = self.real + 1j * self.imag
