@@ -4,7 +4,7 @@ from eprTools import DEERSpec
 from eprTools import do_it_for_me
 from time import time
 
-fit_methods = ['nnls', 'nnls_gd', 'cvx']
+fit_methods = ['nnls', 'cvx']
 for fit_method in fit_methods:
 
     do_it_for_me('Example_DEER.DTA', fit_method=fit_method)
