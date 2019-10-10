@@ -647,40 +647,33 @@ class DEERSpec:
 
     def correct_background(self):
 
-        # calculate t0 for fit_t if none given
+        # Calculate t0 for fit_t if none given
         if not self.background_fit_t:
+            # Use last 3/4 of data to fit background
             self.background_fit_t = (int(len(self.time) / 4))
 
-        # Use last 3/4 of data to fit background
+        # Isolate data for background fitting
         fit_time = self.time[self.background_fit_t:]
         fit_real = self.real[self.background_fit_t:]
 
+        # Determine and fit background correction type
         if self.background_kind in ['3D', '2D']:
-            if self.background_kind == '2D':
-                self.d = 2
-            elif self.background_kind == '3D':
-                self.d = 3
-
+            self.d = int(self.background_kind[0])
             popt, pcov = curve_fit(lambda t, k, a: homogeneous_3d(t, k, a, self.d), fit_time, fit_real,
                                    p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-3, 1)])
-
             self.background = homogeneous_3d(self.time, *popt, self.d)
-            self.modulation_depth = 1 - popt[1]
-            self.background_param = popt
 
-            # Make partial background correction
-            self.form_factor = self.real / np.sqrt(self.background)
-            self.form_factor = self.form_factor / max(self.form_factor)
         elif self.background_kind == 'poly':
-
             popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
             self.background = np.polyval(popt, self.time)
-            self.modulation_depth = 1 - popt[-1]
-            self.background_param = popt
 
-            # Make partial background correction
-            self.form_factor = self.real / np.sqrt(self.background)
-            self.form_factor = self.form_factor / max(self.form_factor)
+        # Store background correction parameters
+        self.modulation_depth = 1 - popt[-1]
+        self.background_param = popt
+
+        # Make partial background correction
+        self.form_factor = self.real / np.sqrt(self.background)
+        self.form_factor = self.form_factor / max(self.form_factor)
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
@@ -752,6 +745,18 @@ class DEERSpec:
 
         return P
 
+
+    def get_score(self, alpha, fit=None):
+
+        if fit is None:
+            P, fit = self.get_P(alpha)
+
+        if self.L_criteria == 'gcv':
+            return self.get_GCV_score(alpha, fit)
+        elif self.L_criteria == 'aic':
+            return self.get_AIC_score(alpha, fit)
+
+
     def get_AIC_score(self, alpha, fit):
 
         s_error = self.form_factor - fit
@@ -764,15 +769,6 @@ class DEERSpec:
 
         return score
 
-    def get_score(self, alpha, fit=None):
-
-        if fit is None:
-            P, fit = self.get_P(alpha)
-
-        if self.L_criteria == 'gcv':
-            return self.get_GCV_score(alpha, fit)
-        elif self.L_criteria == 'aic':
-            return self.get_AIC_score(alpha, fit)
 
     def get_GCV_score(self, alpha, fit):
 
