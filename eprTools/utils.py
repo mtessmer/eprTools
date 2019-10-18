@@ -12,6 +12,8 @@ def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
     omega_dd = (2 * np.pi * 52.0410) / (r ** 3)
     trigterm = np.outer(time, omega_dd)
     z = np.sqrt((6 * trigterm / np.pi))
+    # Set zero elements to 1 to avoid divide by zero error
+    z[z == 0] = 1
     S_z, C_z = fresnel(z)
     SzNorm = S_z / z
     CzNorm = C_z / z
@@ -20,7 +22,34 @@ def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
     sinterm = np.sin(trigterm)
     K = CzNorm * costerm + SzNorm * sinterm
 
+    # Correct for error introduced by avoiding divide by zero error
+    K[0] = 1
+
     return K
+
+def generate_kernel_nm(rmin=1.5, rmax=8.0, time=3.5, size=200):
+
+    r = np.linspace(rmin, rmax, size)
+    time = np.linspace(0, time, size)
+
+    omega_dd = (2 * np.pi * 52.0410) / (r ** 3)
+    trigterm = np.outer(time, omega_dd)
+    z = np.sqrt((6 * trigterm / np.pi))
+
+    # Set zero elements to 1 to avoid divide by zero error
+    z[z == 0] = 1
+    S_z, C_z = fresnel(z)
+    SzNorm = S_z / z
+    CzNorm = C_z / z
+    costerm = np.cos(trigterm)
+    sinterm = np.sin(trigterm)
+    K = CzNorm * costerm + SzNorm * sinterm
+
+    # Correct for error introduced by avoiding divide by zero error
+    K[0] = 1
+
+    return K
+
 
 
 def generate_background(a, k, j, d=3, time=3500, size=200):
