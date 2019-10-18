@@ -236,7 +236,7 @@ class DEERSpec:
         """
         self.kernel_len = length
         self.r = np.linspace(self.r_min, self.r_max, self.kernel_len)
-        self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
+        self.fit_time = np.linspace(0, self.time.max(), self.kernel_len)
         self._update()
 
     def get_L_curve(self, length=80, set_alpha=False):
@@ -462,13 +462,18 @@ class DEERSpec:
         omega_dd = (2 * np.pi * 52.0410) / (self.r ** 3)
         trig_term = np.outer(self.fit_time, omega_dd)
         z = np.sqrt((6 * trig_term / np.pi))
+
+        # Adjust z=0 to prevent divide by zero error
+        z[z==0] = 1
         S_z, C_z = fresnel(z)
         SzNorm = S_z / z
         CzNorm = C_z / z
-
         cos_term = np.cos(trig_term)
         sin_term = np.sin(trig_term)
         K = CzNorm * cos_term + SzNorm * sin_term
+
+        # Correct for error introduced by adjustment made to prevent divide by zero error
+        K[0] = 1
 
         # Define L matrix
         L = np.zeros((self.kernel_len - 2, self.kernel_len))
@@ -635,7 +640,7 @@ class DEERSpec:
         self.real = self.real[spec_max_idx:]
         self.imag = self.imag[spec_max_idx:]
 
-        self.fit_time = np.linspace(1e-6, self.time.max(), self.kernel_len)
+        self.fit_time = np.linspace(0, self.time.max(), self.kernel_len)
 
     def correct_background(self):
 
