@@ -441,7 +441,17 @@ class DEERSpec:
 
         :param mode: string
             Method used to score selection of smoothing parameter. Choose one of ['gcv', 'aic']
+
+                Examples
+        --------
+        >>> from eprTools import DEERSpec
+        >>> spc = DEERSpec.from_file('examples/Example_DEER.DTA')
+        >>> print(spc.L_criteria)
+        >>> spc.set_L_criteria('aic')
+        >>> print(spc.L_criteria)
+
         """
+
         self.L_criteria = mode
         self._update()
 
@@ -591,6 +601,10 @@ class DEERSpec:
         self.real = np.real(complex_data) / self.phase_max
 
     def zero_time(self):
+        """
+        Sets t=0 where 0th moment of a sliding window is closest to 0
+
+        """
 
         def zero_moment(data):
             xSize = int(len(data) / 2)
@@ -643,6 +657,11 @@ class DEERSpec:
         self.fit_time = np.linspace(0, self.time.max(), self.kernel_len)
 
     def correct_background(self):
+        """
+        Calculate background fit to be incorporated into the kernel. Previously this method would subtract the
+        background from the time domain signal but that functionality has been removed. Future implementations may
+        allow for this as well as sqrt(Background) adjustments.
+        """
 
         # calculate t0 for fit_t if none given
         if not self.background_fit_t:
@@ -675,6 +694,18 @@ class DEERSpec:
             self.form_factor = self.real
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
+        """
+        Runs fitting protocol with the appropriate settings defined by defaults or user.
+
+        :param alpha: float
+            User defined smoothing parameter
+
+        :param true_min: bool
+             Decides whether or not to do a true nnls minimization or choose the minimum from a list of possible values
+
+        :param fit_method: string
+             Which fitting method to use. Either 'cvx' for convex optimization or 'nnls' for scipy nnls
+        """
 
         self.fit_method = fit_method
 
@@ -692,6 +723,12 @@ class DEERSpec:
         self.P = P / np.sum(P)
 
     def get_P(self, alpha):
+        """
+        Calculates the probability distribution for a given Smoothing parameter (Alpha).
+
+        :param alpha: float
+            Smoothing parameter
+        """
 
         if self.fit_method == 'nnls':
             C = np.concatenate([self.K, alpha * self.L])
@@ -714,7 +751,12 @@ class DEERSpec:
         return P, fit
 
     def get_P_cvx(self, alpha):
+        """
+        Convex optimization for NNLS problem. Currently the fastest approach for solving NNLS problem.
 
+        :param alpha: float
+            Smoothing parameter
+        """
         K = self.K
         L = self.L
         points = self.kernel_len
@@ -742,7 +784,18 @@ class DEERSpec:
         return P
 
     def get_AIC_score(self, alpha, fit):
+        """
+        Gets the Akaike Information Critera (AIC) score for a given fit with a given smoothing parameter.
 
+        :param alpha: float
+            Smoothing parameter
+
+        :param fit: numpy ndarray
+            The NNLS fit of the the time domain signal for the given alpha parameter.
+
+        :returns score: float
+            the AIC score for the given alpha and fit
+        """
         s_error = self.form_factor - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
@@ -755,6 +808,18 @@ class DEERSpec:
 
     def get_score(self, alpha, fit=None):
 
+        """
+        Helper method to choose score function for evaluating under/overfitting
+
+        :param alpha: float
+            Smoothing parameter
+
+        :param fit: numpy ndarray
+            The NNLS fit of the the time domain signal for the given alpha parameter.
+
+        :returns score: float
+            the L_curve critera score for the given alpha and fit
+        """
         if fit is None:
             P, fit = self.get_P(alpha)
 
@@ -765,6 +830,18 @@ class DEERSpec:
 
     def get_GCV_score(self, alpha, fit):
 
+        """
+        Gets the Generalized cross validation (GCV) score for a given fit with a given smoothing parameter.
+
+        :param alpha: float
+            Smoothing parameter
+
+        :param fit: numpy ndarray
+            The NNLS fit of the the time domain signal for the given alpha parameter.
+
+        :returns score: float
+            the GCV score for the given alpha and fit
+        """
         s_error = self.form_factor - fit
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
@@ -775,11 +852,37 @@ class DEERSpec:
 
 
 def homogeneous_3d(t, k, a, d):
+    """
+    Homogeneous n-dimensional background function to be used for background fitting.
+    :param t: numpy ndarray
+        time axis
+
+    :param k: float
+        fit parameter
+
+    :param a: float
+        1 - modulation_depth
+
+    :param d: float
+        number of dimensions
+
+    """
     return a * np.exp(-k * (t ** (d / 3)))
 
 
 def do_it_for_me(filename, true_min=False, fit_method='cvx'):
-    #plt.style.use('deer-epr')
+    """
+    Function to run DEER analysis on experimental data with all defaults
+
+    :param filename: string
+        Filename of exerimental data
+
+    :param true_min: bool
+             Decides whether or not to do a true nnls minimization or choose the minimum from a list of possible values
+
+    :param fit_method: string
+        Which fitting method to use. Either 'cvx' for convex optimization or 'nnls' for scipy nnls
+    """
 
     t1 = time()
     spc = DEERSpec.from_file(filename)
