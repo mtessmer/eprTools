@@ -245,9 +245,13 @@ class DEERSpec:
 
         :param length: int, default 80
             number of alpha values to test when calculating L-curve
+
         :param set_alpha: boolean, default False
             set object attribute self.alpha after calculating L-curve and determining optimal alpha. Should only be
             required by get_fit()
+
+        :returns rho, eta, alpha_idx: float, float, int
+            L-curve points (rho, eta) and optimal smoothing parameter index (alpha_idx)
 
         See Also
         --------
@@ -312,8 +316,10 @@ class DEERSpec:
 
         """
         Set the distance range of the kernel
+
         :param r_min: int, float, default 15
             minimum distance value of kernel in angstroms
+
         :param r_max: int, float, default 80
             maximum distance value of kernel in angstroms
 
@@ -345,6 +351,7 @@ class DEERSpec:
 
         :param phi: float
             Angle to set the phase to
+
         :param degrees: bool, default True
             Use unit degrees. If set to False phi will be assumed to be in radians.
 
@@ -414,8 +421,10 @@ class DEERSpec:
 
         :param kind: string, default '3D'
             Function used to correct background. Use one of ['3D', '2D', 'poly']
+
         :param k: int, default 1
             Order used for polynomial fit
+
         :param fit_time: int, default None
             Length of the experimental trace to be used for fitting the background correction
 
