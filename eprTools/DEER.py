@@ -645,6 +645,7 @@ class DEERSpec:
 
         self.fit_time = np.linspace(0, self.time.max(), self.kernel_len)
 
+
     def correct_background(self):
 
         # Calculate t0 for fit_t if none given
@@ -675,6 +676,7 @@ class DEERSpec:
         self.form_factor = self.real / np.sqrt(self.background)
         self.form_factor = self.form_factor / max(self.form_factor)
 
+
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
         self.fit_method = fit_method
@@ -691,9 +693,11 @@ class DEERSpec:
 
         P, self.fit = self.get_P(self.alpha)
 
+        # Adjust for half background correction
         self.fit = self.fit * self.sqrt_B
         self.fit = self.fit / max(self.fit)
         self.P = P / np.sum(P)
+
 
     def get_P(self, alpha):
 
@@ -716,6 +720,7 @@ class DEERSpec:
             raise NameError('Fit method {} is not supported'.format(self.fit_method))
         fit = self.K.dot(P)
         return P, fit
+
 
     def get_P_cvx(self, alpha):
 
@@ -802,10 +807,7 @@ def do_it_for_me(filename, true_min=False, fit_method='cvx'):
     ax2.plot(spc.r, spc.P)
 
     # Get L-curve
-    t1 = time()
     rho, eta, alpha_idx = spc.get_L_curve()
-    t2 = time()
-    print("L-curve computed in {}".format(t2 - t1))
 
     ax3.scatter(rho, eta)
     ax3.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
