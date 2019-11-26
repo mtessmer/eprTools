@@ -3,5 +3,5 @@
 build/
 dist/
 __pychache__/
-test/*
-.idea/*
+test/
+.idea/
