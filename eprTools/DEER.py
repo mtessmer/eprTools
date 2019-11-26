@@ -664,6 +664,10 @@ class DEERSpec:
                                    p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-3, 1)])
             self.background = homogeneous_3d(self.time, *popt, self.d)
 
+            # Make partial background correction
+            self.form_factor = self.real / np.sqrt(self.background)
+            self.form_factor = self.form_factor / max(self.form_factor)
+
         elif self.background_kind == 'poly':
             popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
             self.background = np.polyval(popt, self.time)
@@ -675,7 +679,6 @@ class DEERSpec:
         # Make partial background correction
         self.form_factor = self.real / np.sqrt(self.background)
         self.form_factor = self.form_factor / max(self.form_factor)
-
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
 
