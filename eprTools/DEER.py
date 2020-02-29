@@ -3,6 +3,7 @@ from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from eprTools.tntnn import tntnn
+from eprTools.utils import homogeneous_3d, read_param_file
 import matplotlib.pyplot as plt
 from time import time
 import cvxopt as cvo
@@ -118,29 +119,10 @@ class DEERSpec:
 
         # Look for time from DSC file
         param_file = file_name[:-3] + 'DSC'
-        param_dict = {}
         try:
-            with open(param_file, 'r') as file:
-                for line in file:
-
-                    # Skip blank lines and lines with comment chars
-                    if line.startswith(("*", "#", "\n")):
-                        continue
-
-                    # Add keywords to param_dict
-                    else:
-                        line = line.split()
-                        try:
-                            key = line[0]
-                            val = [arg.strip() for arg in line[1:]]
-                        except IndexError:
-                            key = line
-                            val = None
-
-                        if key:
-                            param_dict[key] = val
+            param_dict = read_param_file(param_file)
         except OSError:
-            print("Error: No parameter file found")
+            print("Warning: No parameter file found")
 
         # Don't perform phase correction if experiment was not phase cycled
         do_phase = True
@@ -167,6 +149,8 @@ class DEERSpec:
         spec_real = spec[0::2]
         spec_imag = spec[1::2]
 
+        # Drop first ten scans because for some reason our spec phase shifts during early scans
+        # TODO: Impliment this as an option because I can't imagine that all specs do this
         if n_scans > 1:
             spec_real = spec_real.reshape(n_scans, points)[10:]
             spec_imag = spec_imag.reshape(n_scans, points)[10:]
@@ -179,7 +163,8 @@ class DEERSpec:
             spec_real = np.delete(spec_real, -1, 0)
             spec_imag = np.delete(spec_imag, -1, 0)
 
-            # Roll with the mean for now. Implement usage of individual scans in the future.
+            # Roll with the mean for now.
+            # TODO: Implement usage of individual scans in the future.
             spec_real = spec_real.mean(axis=0)
             spec_imag = spec_imag.mean(axis=0)
 
@@ -187,7 +172,7 @@ class DEERSpec:
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
 
     @classmethod
-    def from_array(cls, time, spec_real, spec_imag = None, r_min=15, r_max=80):
+    def from_array(cls, time, spec_real, spec_imag=None, r_min=15, r_max=80):
 
         do_phase = False
 
@@ -483,7 +468,7 @@ class DEERSpec:
         z = np.sqrt((6 * trig_term / np.pi))
 
         # Adjust z=0 to prevent divide by zero error
-        z[z==0] = 1
+        z[z == 0] = 1
         S_z, C_z = fresnel(z)
         SzNorm = S_z / z
         CzNorm = C_z / z
@@ -511,7 +496,7 @@ class DEERSpec:
         elif self.background_kind == 'poly':
             B = np.polyval(self.background_param, self.fit_time)
 
-        K = ((1 - self.modulation_depth +  self.modulation_depth * K).T * B).T
+        K = ((1 - self.modulation_depth + self.modulation_depth * K).T * B).T
 
         self.K = K
         self.form_factor = form_factor
@@ -601,7 +586,6 @@ class DEERSpec:
                 phi = phi + np.pi
 
             self.phi = phi
-            
 
         complex_data = complex_data * np.exp(1j * self.phi)
         self.phase_max = complex_data.real.max()
@@ -792,6 +776,28 @@ class DEERSpec:
 
         return P
 
+    def get_score(self, alpha, fit=None):
+
+        """
+        Helper method to choose score function for evaluating under/overfitting
+
+        :param alpha: float
+            Smoothing parameter
+
+        :param fit: numpy ndarray
+            The NNLS fit of the the time domain signal for the given alpha parameter.
+
+        :returns score: float
+            the L_curve critera score for the given alpha and fit
+        """
+        if fit is None:
+            P, fit = self.get_P(alpha)
+
+        if self.L_criteria == 'gcv':
+            return self.get_GCV_score(alpha, fit)
+        elif self.L_criteria == 'aic':
+            return self.get_AIC_score(alpha, fit)
+
     def get_AIC_score(self, alpha, fit):
         """
         Gets the Akaike Information Critera (AIC) score for a given fit with a given smoothing parameter.
@@ -815,28 +821,6 @@ class DEERSpec:
 
         return score
 
-    def get_score(self, alpha, fit=None):
-
-        """
-        Helper method to choose score function for evaluating under/overfitting
-
-        :param alpha: float
-            Smoothing parameter
-
-        :param fit: numpy ndarray
-            The NNLS fit of the the time domain signal for the given alpha parameter.
-
-        :returns score: float
-            the L_curve critera score for the given alpha and fit
-        """
-        if fit is None:
-            P, fit = self.get_P(alpha)
-
-        if self.L_criteria == 'gcv':
-            return self.get_GCV_score(alpha, fit)
-        elif self.L_criteria == 'aic':
-            return self.get_AIC_score(alpha, fit)
-
     def get_GCV_score(self, alpha, fit):
 
         """
@@ -858,25 +842,6 @@ class DEERSpec:
         nt = self.kernel_len
         score = np.linalg.norm(s_error) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
         return score
-
-
-def homogeneous_3d(t, k, a, d):
-    """
-    Homogeneous n-dimensional background function to be used for background fitting.
-    :param t: numpy ndarray
-        time axis
-
-    :param k: float
-        fit parameter
-
-    :param a: float
-        1 - modulation_depth
-
-    :param d: float
-        number of dimensions
-
-    """
-    return a * np.exp(-k * (t ** (d / 3)))
 
 
 def do_it_for_me(filename, true_min=False, fit_method='cvx'):
