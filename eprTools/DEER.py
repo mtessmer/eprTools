@@ -3,7 +3,7 @@ from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
 from eprTools.tntnn import tntnn
-from eprTools.utils import homogeneous_3d, read_param_file
+from eprTools.utils import homogeneous_3d, read_param_file, fit_nd_background
 import matplotlib.pyplot as plt
 from time import time
 import cvxopt as cvo
@@ -112,7 +112,6 @@ class DEERSpec:
         self.raw_spec_real = spec_real
         self.raw_spec_imag = spec_imag
 
-        self._update()
 
     @classmethod
     def from_file(cls, file_name, r_min=15, r_max=80):
@@ -197,7 +196,6 @@ class DEERSpec:
 
         self.trim()
         self.zero_time()
-
         if self.do_phase:
             self.phase()
 
@@ -491,7 +489,7 @@ class DEERSpec:
         f = interp1d(self.time, self.form_factor)
         form_factor = f(self.fit_time)
 
-        if self.background_kind in ['3D', '2D']:
+        if self.background_kind in ['3D', '2D', 'ND']:
             B = homogeneous_3d(self.fit_time, self.background_param[0], self.background_param[1], self.d)
         elif self.background_kind == 'poly':
             B = np.polyval(self.background_param, self.fit_time)
@@ -658,7 +656,7 @@ class DEERSpec:
 
         # calculate t0 for fit_t if none given
         if not self.background_fit_t:
-            self.background_fit_t = (int(len(self.time) / 4))
+            self.background_fit_t = self._get_background_fit_time()
 
         # Use last 3/4 of data to fit background
         fit_time = self.time[self.background_fit_t:]
@@ -678,6 +676,18 @@ class DEERSpec:
             self.background_param = popt
             self.form_factor = self.real
 
+        elif self.background_kind == 'ND':
+
+            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
+                                   p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.5, 0), (1e-3, 1, 6)])
+
+            self.background = homogeneous_3d(self.time, *popt)
+            self.modulation_depth = 1 - popt[1]
+            self.d = popt[2]
+            self.background_param = popt
+            self.form_factor = self.real
+
+
         elif self.background_kind == 'poly':
 
             popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
@@ -685,6 +695,27 @@ class DEERSpec:
             self.modulation_depth = 1 - popt[-1]
             self.background_param = popt
             self.form_factor = self.real
+
+    def _get_background_fit_time(self, rel_start_min=0.1, rel_start_max=0.6):
+
+        start_min = np.round(rel_start_min * len(self.fit_time))
+        start_max = np.round(rel_start_max * len(self.fit_time))
+        tstart_space = np.arange(start_min, start_max, dtype=int)
+        fit_real = interp1d(self.time, self.real)(self.fit_time)
+
+        form_factor_space = np.empty((len(tstart_space), len(fit_real)))
+        for i, tstart in enumerate(tstart_space):
+            background, mod_depth = fit_nd_background(fit_real, self.fit_time, tstart)
+            form_factor_space[i] = fit_real - background
+            form_factor_space[i] /= (mod_depth * background)
+            form_factor_space[i] /= form_factor_space[i].max()
+
+        ffts = np.fft.fft(form_factor_space)
+        ffts = ffts - ffts.mean(axis=0)
+        score_idx = np.argmin(np.sum(np.abs(ffts[:,:4]), axis=1))
+
+
+        return np.argmin(np.abs(self.time - self.fit_time[tstart_space[score_idx]]))
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
         """
@@ -701,7 +732,7 @@ class DEERSpec:
         """
 
         self.fit_method = fit_method
-
+        self._update()
         if alpha is None and true_min:
             res = minimize(self.get_score, 1, method='Nelder-Mead')
             self.alpha = res.x
@@ -769,8 +800,8 @@ class DEERSpec:
         lower_bound = cvo.matrix(np.zeros(points))
         G = -cvo.matrix(np.eye(points, points))
         cvo.solvers.options['show_progress'] = False
-        cvo.solvers.options['abstol'] = 1e-8
-        cvo.solvers.options['reltol'] = 1e-7
+        cvo.solvers.options['abstol'] = 1e-9
+        cvo.solvers.options['reltol'] = 1e-8
         P = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))['x']
         P = np.asarray(P).reshape(points, )
 
@@ -860,7 +891,7 @@ def do_it_for_me(filename, true_min=False, fit_method='cvx'):
 
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.set_background_correction(kind='3D', k=2)
+    spc.set_background_correction(kind='ND')
     spc.get_fit(true_min=true_min, fit_method=fit_method)
     t2 = time()
 

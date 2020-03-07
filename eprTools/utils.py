@@ -1,5 +1,7 @@
 import numpy as np
+from numba import njit
 from scipy.special import fresnel
+from scipy.optimize import curve_fit
 
 
 def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
@@ -139,3 +141,16 @@ def read_param_file(param_file):
                     param_dict[key] = val
 
     return param_dict
+
+def fit_nd_background(s, t, fit_start):
+
+    fit_time = t[fit_start:]
+    fit_real = s[fit_start:]
+
+    popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
+                           p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.5, 0), (1e-3, 1, 6)])
+
+    background = homogeneous_3d(t, *popt)
+    mod_depth = 1 - popt[1]
+
+    return background, mod_depth
