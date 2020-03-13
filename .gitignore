@@ -2,6 +2,6 @@
 *.pyo
 build/
 dist/
-eprTools/__pychache__/
+eprTools/__pycache__/
 test/
 .idea/
