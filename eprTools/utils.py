@@ -50,6 +50,7 @@ def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
 
     return K
 
+
 def generate_kernel_nm(rmin=1.5, rmax=8.0, time=3.5, size=200):
     """
     Generate DEER kernel using  nanometers and microsecond
@@ -92,7 +93,7 @@ def generate_kernel_nm(rmin=1.5, rmax=8.0, time=3.5, size=200):
 
     return K
 
-def homogeneous_3d(t, k, a, d):
+def homogeneous_3d(t, k, a, d=3):
     """
     Homogeneous n-dimensional background function to be used for background fitting.
     :param t: numpy ndarray
@@ -146,9 +147,15 @@ def fit_nd_background(s, t, fit_start):
 
     fit_time = t[fit_start:]
     fit_real = s[fit_start:]
+    try:
+        popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
+                               p0=(1e-5, 0.7), bounds=[(1e-7, 0.4), (1e-1, 1)])
+    except RuntimeError:
+        import matplotlib.pyplot as plt
 
-    popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
-                           p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.5, 0), (1e-3, 1, 6)])
+        plt.plot(fit_time, fit_real)
+        plt.show()
+        raise RuntimeError
 
     background = homogeneous_3d(t, *popt)
     mod_depth = 1 - popt[1]

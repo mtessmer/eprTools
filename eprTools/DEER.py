@@ -68,12 +68,12 @@ class DEERSpec:
     >>> plt.plot()
     """
 
-    def __init__(self, time, spec_real, spec_imag, r_min, r_max, do_phase):
+    def __init__(self, time, spec_real, spec_imag, r_min, r_max, do_phase, do_zero_time=True):
 
         # Working values
         self.time = time
-        self.real = spec_real
-        self.imag = spec_imag
+        self.real = spec_real / spec_real.max()
+        self.imag = spec_imag / spec_real.max()
 
         # Tikhonov fit results
         self.fit = None
@@ -93,6 +93,7 @@ class DEERSpec:
         # Default phase and trimming parameters
         self.phi = None
         self.do_phase = do_phase
+        self.do_zero_time = do_zero_time
         self.trim_length = None
         self.zt = None
         self.L_criteria = 'gcv'
@@ -171,17 +172,16 @@ class DEERSpec:
         return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
 
     @classmethod
-    def from_array(cls, time, spec_real, spec_imag=None, r_min=15, r_max=80):
+    def from_array(cls, time, spec_real, spec_imag=None, r_min=15, r_max=80, do_zero_time=False):
 
-        do_phase = False
-
+        do_phase = True
         # Create 0 vector for imaginary component if it is not provided
         if not np.any(spec_imag):
             spec_imag = np.zeros(len(spec_real))
-            do_phase = 'True'
+            do_phase = False
 
         # Construct DEERSpec object
-        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=True)
+        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=do_phase, do_zero_time=do_zero_time)
 
     def copy(self):
         """
@@ -195,7 +195,10 @@ class DEERSpec:
         """
 
         self.trim()
-        self.zero_time()
+
+        if self.do_zero_time:
+            self.zero_time()
+
         if self.do_phase:
             self.phase()
 
@@ -505,6 +508,8 @@ class DEERSpec:
         Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts.
         """
 
+
+
         self.real = self.raw_spec_real
         self.imag = self.raw_spec_imag
         self.time = self.raw_time
@@ -517,32 +522,9 @@ class DEERSpec:
             self.real = self.real / max(self.real)
 
         if not self.trim_length:
+            cutoff = None
 
-            # take last quarter of data
-            start = -int(len(self.real) / 3)
-            window = 11
-
-            # get minimum std
-            min_std = self.real[-window:].std()
-            min_i = -window
-            for i in range(start, -window):
-                test_std = self.real[i:i + window].std()
-                if test_std < min_std:
-                    min_std = test_std
-                    min_i = i
-
-            # Test for high noise at the tail of the form factor
-            # This is probably no longer necessary with the new background correction approach
-            max_std = 3 * min_std
-            cutoff = len(self.real)
-
-            for i in range(start, - window):
-                test_std = self.real[i:i + window].std()
-                if (test_std > max_std) & (i > min_i):
-                    cutoff = i
-                    break
-
-        elif self.trim_length:
+        else:
             cutoff = self.trim_length
             f_spec_real = interp1d(self.time, self.real, 'cubic')
             f_spec_imag = interp1d(self.time, self.imag, 'cubic')
@@ -624,7 +606,7 @@ class DEERSpec:
             low_moment = zero_moment(self.real[lFrame: uFrame])
 
             # Only look in first 500ns of data
-            for i in range(half_spec_max_idx, 500):
+            for i in range(half_spec_max_idx, np.argmin(self.real[:1000]) // 2):
                 lFrame = i - half_spec_max_idx
                 uFrame = i + half_spec_max_idx + 1
 
@@ -669,7 +651,7 @@ class DEERSpec:
                 self.d = 3
 
             popt, pcov = curve_fit(lambda t, k, a: homogeneous_3d(t, k, a, self.d), fit_time, fit_real,
-                                   p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-3, 1)])
+                                   p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-1, 1)])
 
             self.background = homogeneous_3d(self.time, *popt, self.d)
             self.modulation_depth = 1 - popt[1]
@@ -679,7 +661,7 @@ class DEERSpec:
         elif self.background_kind == 'ND':
 
             popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
-                                   p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.5, 0), (1e-3, 1, 6)])
+                                   p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.4, 0), (1e-1, 1, 6)])
 
             self.background = homogeneous_3d(self.time, *popt)
             self.modulation_depth = 1 - popt[1]
@@ -706,14 +688,12 @@ class DEERSpec:
         form_factor_space = np.empty((len(tstart_space), len(fit_real)))
         for i, tstart in enumerate(tstart_space):
             background, mod_depth = fit_nd_background(fit_real, self.fit_time, tstart)
-            form_factor_space[i] = fit_real - background
-            form_factor_space[i] /= (mod_depth * background)
+            form_factor_space[i] = fit_real / background
             form_factor_space[i] /= form_factor_space[i].max()
 
         ffts = np.fft.fft(form_factor_space)
         ffts = ffts - ffts.mean(axis=0)
-        score_idx = np.argmin(np.sum(np.abs(ffts[:,:4]), axis=1))
-
+        score_idx = np.argmin(np.sum(np.abs(ffts[:, :4]), axis=1))
 
         return np.argmin(np.abs(self.time - self.fit_time[tstart_space[score_idx]]))
 
