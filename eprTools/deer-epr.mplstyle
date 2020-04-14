@@ -1,0 +1,50 @@
+#Author: Cameron Davidson-Pilon, replicated styles from FiveThirtyEight.com
+# See https://www.dataorigami.net/blogs/fivethirtyeight-mpl
+
+lines.linewidth: 6
+lines.solid_capstyle: butt
+legend.fancybox: true
+
+axes.prop_cycle: cycler('color', ['8080FF', 'A6E6A6', 'B34D66', '991A99', 'FBC15E', '8EBA42', 'FFB5B8'])
+                   # 8080FF : slate
+                   # A6E6A6 : palegreen
+                   # B34D66 : raspberry
+                   # 991A99 : deeppurple
+                   # FBC15E : yellow
+                   # 8EBA42 : green
+                   # FFB5B8 : pink
+				   
+axes.axisbelow: true
+axes.grid: false
+axes.linewidth: 3.0
+
+patch.edgecolor: f0f0f0
+patch.linewidth: 0.5
+
+svg.fonttype: path
+
+xtick.top: false
+ytick.right: false
+
+savefig.edgecolor: f0f0f0
+savefig.facecolor: ffffff
+
+
+figure.figsize: 19.2, 10.8
+figure.subplot.left: 0.08
+figure.subplot.right: 0.95
+figure.subplot.bottom: 0.07
+figure.facecolor: ffffff
+
+axes.spines.left   : True
+axes.spines.bottom : True
+axes.spines.top    : False
+axes.spines.right  : False
+
+legend.fontsize: 20
+
+axes.titlesize : 40
+axes.labelsize : 30
+
+xtick.labelsize : 18
+ytick.labelsize : 18
