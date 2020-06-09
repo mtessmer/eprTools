@@ -29,23 +29,15 @@ def generate_kernel(rmin=15, rmax=80, time=3500, size=200):
         time = time * 1000
 
     r = np.linspace(rmin, rmax, size)
-    time = np.linspace(0.01, time, size)
+    time = np.linspace(0, time, size)
 
     omega_dd = (2 * np.pi * 52.0410) / (r ** 3)
     trigterm = np.outer(time, omega_dd)
     z = np.sqrt((6 * trigterm / np.pi))
+    S_z, C_z = fresnel(z) / z
+    K = C_z * np.cos(trigterm) + S_z * np.sin(trigterm)
 
-    # Set zero elements to 1 to avoid divide by zero error
-    z[z == 0] = 1
-    S_z, C_z = fresnel(z)
-    SzNorm = S_z / z
-    CzNorm = C_z / z
-
-    costerm = np.cos(trigterm)
-    sinterm = np.sin(trigterm)
-    K = CzNorm * costerm + SzNorm * sinterm
-
-    # Correct for error introduced by avoiding divide by zero error
+    # Correct for error introduced by divide by zero error
     K[0] = 1
 
     return K
@@ -71,24 +63,16 @@ def generate_kernel_nm(rmin=1.5, rmax=8.0, time=3.5, size=200):
         DEER Kernel matrix
 
     """
-
     r = np.linspace(rmin, rmax, size)
     time = np.linspace(0, time, size)
 
     omega_dd = (2 * np.pi * 52.0410) / (r ** 3)
     trigterm = np.outer(time, omega_dd)
     z = np.sqrt((6 * trigterm / np.pi))
+    S_z, C_z = fresnel(z) / z
+    K = C_z * np.cos(trigterm) + S_z * np.sin(trigterm)
 
-    # Set zero elements to 1 to avoid divide by zero error
-    z[z == 0] = 1
-    S_z, C_z = fresnel(z)
-    SzNorm = S_z / z
-    CzNorm = C_z / z
-    costerm = np.cos(trigterm)
-    sinterm = np.sin(trigterm)
-    K = CzNorm * costerm + SzNorm * sinterm
-
-    # Correct for error introduced by avoiding divide by zero error
+    # Correct for error introduced by divide by zero error
     K[0] = 1
 
     return K
@@ -129,19 +113,19 @@ def read_param_file(param_file):
                 continue
 
             # Add keywords to param_dict
-            else:
-                line = line.split()
-                try:
-                    key = line[0]
-                    val = [arg.strip() for arg in line[1:]]
-                except IndexError:
-                    key = line
-                    val = None
+            line = line.split()
+            try:
+                key = line.pop(0)
+                val = [arg.strip() for arg in line]
+            except IndexError:
+                key = line
+                val = None
 
-                if key:
-                    param_dict[key] = val
+            if key:
+                param_dict[key] = val
 
     return param_dict
+
 
 def fit_nd_background(s, t, fit_start):
 
