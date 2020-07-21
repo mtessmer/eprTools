@@ -2,8 +2,7 @@ import numpy as np
 from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
 from scipy.special import fresnel
-from eprTools.tntnn import tntnn
-from eprTools.utils import homogeneous_3d, read_param_file, fit_nd_background
+from .utils import homogeneous_3d, read_param_file, fit_nd_background
 import matplotlib.pyplot as plt
 from time import time
 import cvxopt as cvo
