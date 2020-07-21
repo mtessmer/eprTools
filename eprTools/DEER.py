@@ -482,10 +482,10 @@ class DEERSpec:
 
         # Define L matrix
         L = np.zeros((self.kernel_len - 2, self.kernel_len))
-        spots = np.arange(self.kernel_len - 2)
-        L[spots, spots] = 1
-        L[spots, spots + 1] = - 2
-        L[spots, spots + 2] = 1
+        diag = np.arange(self.kernel_len - 2)
+        L[diag, diag] = 1
+        L[diag, diag + 1] = - 2
+        L[diag, diag + 2] = 1
         self.L = L
 
         # Compress Data to kernel dimensions
@@ -766,7 +766,7 @@ class DEERSpec:
         points = self.kernel_len
 
         # Get initial matrices of optimization
-        pre_result = (K.T.dot(K) + alpha * L.T.dot(L))
+        pre_result = (K.T.dot(K) + alpha**2 * L.T.dot(L))
 
         # get unconstrained solution as starting point.
         P = np.linalg.inv(pre_result).dot(K.T).dot(self.form_factor)
