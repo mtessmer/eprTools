@@ -37,7 +37,7 @@ spc = DEERSpec.from_file('Example_DEER.DTA')
 
 # set kernel parameters
 spc.set_kernel_r(rmin=15, rmax=60)
-spc.set_kernel_len(250)
+spc.set_kernel_shape(250)
 
 # fit data
 spc.get_fit()

@@ -46,7 +46,7 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
 
     # Interpret time domain
     if isinstance(time, numbers.Number):
-        time = np.linspace(1, time, size)
+        time = np.linspace(0, time, size)
     elif isinstance(r, Sized):
         if len(time) == 2:
             r = np.linspace(time[0], time[1], size)
@@ -66,7 +66,7 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     # Correct for error introduced by divide by zero error
     K[time == 0] = 1
 
-    return K
+    return K, r, time
 
 
 def homogeneous_3d(t, k, a, d=3):

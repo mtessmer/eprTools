@@ -1,11 +1,11 @@
+import numbers
 import numpy as np
 from scipy.optimize import minimize, curve_fit, nnls
 from scipy.interpolate import interp1d
-from scipy.special import fresnel
-from .utils import homogeneous_3d, read_param_file, fit_nd_background
+from eprTools.utils import homogeneous_3d, read_param_file, fit_nd_background, generate_kernel
 import matplotlib.pyplot as plt
-from time import time
 import cvxopt as cvo
+from time import time
 from numba import njit
 from copy import deepcopy
 
@@ -67,7 +67,7 @@ class DEERSpec:
     >>> plt.plot()
     """
 
-    def __init__(self, time, spec_real, spec_imag, r_min, r_max, do_phase, do_zero_time=True):
+    def __init__(self, time, spec_real, spec_imag, r, do_phase, do_zero_time=True):
 
         # Working values
         self.time = time
@@ -81,13 +81,11 @@ class DEERSpec:
         self.rho = None
         self.eta = None
         self.P = None
-        self.fit_time = None
 
         # Kernel parameters
-        self.r_min = r_min
-        self.r_max = r_max
-        self.kernel_len = 216
-        self.r = np.linspace(r_min, r_max, self.kernel_len)
+        self.K = None
+        self.r = r
+        self.fit_time = time
 
         # Default phase and trimming parameters
         self.phi = None
@@ -112,9 +110,10 @@ class DEERSpec:
         self.raw_spec_real = spec_real
         self.raw_spec_imag = spec_imag
 
+        self._update()
 
     @classmethod
-    def from_file(cls, file_name, r_min=15, r_max=80):
+    def from_file(cls, file_name, r=(15, 80)):
 
         # Look for time from DSC file
         param_file = file_name[:-3] + 'DSC'
@@ -168,19 +167,56 @@ class DEERSpec:
             spec_imag = spec_imag.mean(axis=0)
 
         # Construct DEERSpec object
-        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase)
+        return cls(time, spec_real, spec_imag, r, do_phase)
 
     @classmethod
-    def from_array(cls, time, spec_real, spec_imag=None, r_min=15, r_max=80, do_zero_time=False):
+    def from_array(cls, time, spec_real, spec_imag=None, r=(15, 80), do_zero_time=False):
 
         do_phase = True
         # Create 0 vector for imaginary component if it is not provided
-        if not np.any(spec_imag):
+        if spec_imag is None:
             spec_imag = np.zeros(len(spec_real))
             do_phase = False
 
         # Construct DEERSpec object
-        return cls(time, spec_real, spec_imag, r_min, r_max, do_phase=do_phase, do_zero_time=do_zero_time)
+        return cls(time, spec_real, spec_imag, r, do_phase=do_phase, do_zero_time=do_zero_time)
+
+    @classmethod
+    def from_distribution(cls, r, P, time=3500):
+        """
+        Constructor method for
+
+        :param r: ndarray
+            Distance coordinates of the distance distribution
+        :param P: ndarray
+            Probability density of the distribution corresponding to the distance coordinate array
+        :return:
+        """
+        time = np.linspace(0, time, len(r))
+
+        K = generate_kernel(r, time)
+        spec_real = K.dot(P)
+        spec_imag = np.zeros_like(spec_real)
+
+
+        return cls(time, spec_real, spec_imag, r, do_phase=False, do_zero_time=False)
+
+    def __eq__(self, spc):
+        if not isinstance(spc, DEERSpec):
+            return False
+        elif np.any(spc.raw_time != self.raw_time):
+            return False
+        elif np.any(spc.raw_spec_real != self.raw_spec_real):
+            return False
+        elif np.any(spc.raw_spec_imag != self.raw_spec_imag):
+            return False
+        elif np.any(spc.K != self.K):
+            return False
+        elif self.alpha != self.alpha:
+            return False
+        else:
+            return True
+
 
     def copy(self):
         """
@@ -204,11 +240,11 @@ class DEERSpec:
         self.correct_background()
         self.compute_kernel()
 
-    def set_kernel_len(self, length=250):
+    def set_kernel_shape(self, shape=250):
         """
         Change the size of the kernel. Does not change the range of time or distance
 
-        :param length : int, default=250
+        :param shape : int, default=250
             length of kernel array. Note that large kernels require more time to fit.
 
         See Also
@@ -219,9 +255,12 @@ class DEERSpec:
         --------
 
         """
-        self.kernel_len = length
-        self.r = np.linspace(self.r_min, self.r_max, self.kernel_len)
-        self.fit_time = np.linspace(0, self.time.max(), self.kernel_len)
+
+        if isinstance(shape, numbers.Number):
+            shape = (shape, shape)
+
+        self.r = np.linspace(min(self.r), max(self.r), shape[1])
+        self.fit_time = np.linspace(min(self.time), max(self.time), shape[0])
         self._update()
 
     def get_L_curve(self, length=80, set_alpha=False):
@@ -255,14 +294,14 @@ class DEERSpec:
         """
 
         # Test if L-curve has already been calculated
-        if self.alpha_idx:
+        if self.alpha_idx is not None:
             return self.rho, self.eta, self.alpha_idx
 
         else:
             # If alpha is already defined construct L-curve centered around it
             if self.alpha:
-                log_min = np.logspace(np.log10(self.alpha) - 4, np.log10(self.alpha), np.floor(length / 2))
-                log_max = np.logspace(np.log10(self.alpha), np.log10(self.alpha) + 4, np.ceil(length / 2))
+                log_min = np.logspace(np.log10(self.alpha) - 4, np.log10(self.alpha), int(np.floor(length / 2)))
+                log_max = np.logspace(np.log10(self.alpha), np.log10(self.alpha) + 4, int(np.ceil(length / 2)))
                 alpha_list = np.concatenate([log_min, log_max])
             # Else center L-curve at 1
             # TODO: implement dynamic choice of L-curve range to account for dynamic kernels
@@ -297,7 +336,7 @@ class DEERSpec:
 
             return self.rho, self.eta, self.alpha_idx
 
-    def set_kernel_r(self, r_min=15, r_max=80):
+    def set_kernel_r(self, r):
 
         """
         Set the distance range of the kernel
@@ -319,15 +358,13 @@ class DEERSpec:
         >>> spc = DEERSpec('Example_DEER.DTA')
         >>> spc.get_fit()
         >>> plt.plot(spc.r, spc.P)
-        >>> spc.set_kernel_len(r_min=20, r_max=60)
+        >>> spc.set_kernel_shape(r=(20,60))
         >>> spc.get_fit()
         >>> plt.plot(spc.r, spc.P)
         >>> plt.show()
         """
 
-        self.r = np.linspace(r_min, r_max, self.kernel_len)
-        self.r_min = r_min
-        self.r_max = r_max
+        self.r = r
         self._update()
 
     def set_phase(self, phi=0, degrees=True):
@@ -354,7 +391,9 @@ class DEERSpec:
         if not degrees:
             self.phi = phi
         elif degrees:
-            self.phi = phi * np.pi / 180.0
+            self.phi = np.deg2rad(phi)
+
+        self.do_phase = True
 
         self._update()
 
@@ -426,7 +465,8 @@ class DEERSpec:
         """
         self.background_kind = kind
         self.background_k = k
-        self.background_fit_t = fit_time
+        if fit_time is not None:
+            self.background_fit_t = fit_time
         self._update()
 
     def set_L_criteria(self, mode):
@@ -461,27 +501,12 @@ class DEERSpec:
         set_kernel_r
         utils.generate_kernel
         """
-
-        # Compute Kernel
-        omega_dd = (2 * np.pi * 52.0410) / (self.r ** 3)
-        trig_term = np.outer(self.fit_time, omega_dd)
-        z = np.sqrt((6 * trig_term / np.pi))
-
-        # Adjust z=0 to prevent divide by zero error
-        z[z == 0] = 1
-        S_z, C_z = fresnel(z)
-        SzNorm = S_z / z
-        CzNorm = C_z / z
-        cos_term = np.cos(trig_term)
-        sin_term = np.sin(trig_term)
-        K = CzNorm * cos_term + SzNorm * sin_term
-
-        # Correct for error introduced by adjustment made to prevent divide by zero error
-        K[0] = 1
+        # Generate new kernel
+        self.K, self.r, self.fit_time = generate_kernel(self.r, self.fit_time)
 
         # Define L matrix
-        L = np.zeros((self.kernel_len - 2, self.kernel_len))
-        diag = np.arange(self.kernel_len - 2)
+        L = np.zeros((self.K.shape[1] -2, self.K.shape[1]))
+        diag = np.arange(self.K.shape[1] - 2)
         L[diag, diag] = 1
         L[diag, diag + 1] = - 2
         L[diag, diag + 2] = 1
@@ -492,13 +517,12 @@ class DEERSpec:
         form_factor = f(self.fit_time)
 
         if self.background_kind in ['3D', '2D', 'ND']:
-            B = homogeneous_3d(self.fit_time, self.background_param[0], self.background_param[1], self.d)
+            B = homogeneous_3d(np.abs(self.fit_time), self.background_param[0], self.background_param[1], self.d)
         elif self.background_kind == 'poly':
-            B = np.polyval(self.background_param, self.fit_time)
+            B = np.polyval(self.background_param, np.abs(self.fit_time))
 
-        K = ((1 - self.modulation_depth + self.modulation_depth * K).T * B).T
+        self.K = ((1 - self.modulation_depth + self.modulation_depth * self.K).T * B).T
 
-        self.K = K
         self.form_factor = form_factor
         self.L = L
 
@@ -507,8 +531,6 @@ class DEERSpec:
         Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts.
         """
 
-
-
         self.real = self.raw_spec_real
         self.imag = self.raw_spec_imag
         self.time = self.raw_time
@@ -516,7 +538,6 @@ class DEERSpec:
         # normalize working values
         if min(self.real) < 0:
             self.real = self.real - 2 * min(self.real)
-
             self.imag = self.imag / max(self.real)
             self.real = self.real / max(self.real)
 
@@ -566,11 +587,13 @@ class DEERSpec:
 
             self.phi = phi
 
+        # Adjust phase
         complex_data = complex_data * np.exp(1j * self.phi)
-        self.phase_max = complex_data.real.max()
 
-        self.imag = np.imag(complex_data) / self.phase_max
-        self.real = np.real(complex_data) / self.phase_max
+        # Normalize
+        phase_max = np.maximum(np.abs(complex_data.real).max(), np.abs(complex_data.imag).max())
+        self.imag = np.imag(complex_data) / phase_max
+        self.real = np.real(complex_data) / phase_max
 
     def zero_time(self):
         """
@@ -591,7 +614,7 @@ class DEERSpec:
         f_spec_real = interp1d(self.time, self.real, 'cubic')
         f_spec_imag = interp1d(self.time, self.imag, 'cubic')
 
-        self.time = np.arange(self.time.min(), self.time.max())
+        self.time = np.arange(self.time.min(), self.time.max() + 1)
         self.real = f_spec_real(self.time)
         self.imag = f_spec_imag(self.time)
 
@@ -619,14 +642,8 @@ class DEERSpec:
             spec_max_idx = self.zt
 
         # Adjust time to appropriate zero
-        self.time = self.time - self.time[spec_max_idx]
-
-        # Remove time < 0
-        self.time = self.time[spec_max_idx:]
-        self.real = self.real[spec_max_idx:]
-        self.imag = self.imag[spec_max_idx:]
-
-        self.fit_time = np.linspace(0, self.time.max(), self.kernel_len)
+        self.fit_time -= self.time[spec_max_idx]
+        self.time -= self.time[spec_max_idx]
 
     def correct_background(self):
         """
@@ -636,7 +653,7 @@ class DEERSpec:
         """
 
         # calculate t0 for fit_t if none given
-        if not self.background_fit_t:
+        if self.background_fit_t is None:
             self.background_fit_t = self._get_background_fit_time()
 
         # Use last 3/4 of data to fit background
@@ -649,20 +666,21 @@ class DEERSpec:
             elif self.background_kind == '3D':
                 self.d = 3
 
-            popt, pcov = curve_fit(lambda t, k, a: homogeneous_3d(t, k, a, self.d), fit_time, fit_real,
+            popt, pcov = curve_fit(lambda t, k, a: homogeneous_3d(np.abs(t), k, a, self.d), fit_time, fit_real,
                                    p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-1, 1)])
 
-            self.background = homogeneous_3d(self.time, *popt, self.d)
+            self.background = homogeneous_3d(np.abs(self.time), *popt, self.d)
             self.modulation_depth = 1 - popt[1]
             self.background_param = popt
             self.form_factor = self.real
 
         elif self.background_kind == 'ND':
 
-            popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
+            popt, pcov = curve_fit(homogeneous_3d, np.abs(fit_time), fit_real,
                                    p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.4, 0), (1e-1, 1, 6)])
 
-            self.background = homogeneous_3d(self.time, *popt)
+
+            self.background = homogeneous_3d(np.abs(self.time), *popt)
             self.modulation_depth = 1 - popt[1]
             self.d = popt[2]
             self.background_param = popt
@@ -678,21 +696,21 @@ class DEERSpec:
             self.form_factor = self.real
 
     def _get_background_fit_time(self, rel_start_min=0.1, rel_start_max=0.6):
-
         start_min = np.round(rel_start_min * len(self.fit_time))
         start_max = np.round(rel_start_max * len(self.fit_time))
         tstart_space = np.arange(start_min, start_max, dtype=int)
+
         fit_real = interp1d(self.time, self.real)(self.fit_time)
 
         form_factor_space = np.empty((len(tstart_space), len(fit_real)))
         for i, tstart in enumerate(tstart_space):
-            background, mod_depth = fit_nd_background(fit_real, self.fit_time, tstart)
+            background, mod_depth = fit_nd_background(fit_real, np.abs(self.fit_time), tstart)
             form_factor_space[i] = fit_real / background
             form_factor_space[i] /= form_factor_space[i].max()
 
         ffts = np.fft.fft(form_factor_space)
         ffts = ffts - ffts.mean(axis=0)
-        score_idx = np.argmin(np.sum(np.abs(ffts[:, :4]), axis=1))
+        score_idx = np.argmin(np.sum(np.abs(ffts[:, :2]), axis=1))
 
         return np.argmin(np.abs(self.time - self.fit_time[tstart_space[score_idx]]))
 
@@ -711,7 +729,7 @@ class DEERSpec:
         """
 
         self.fit_method = fit_method
-        self._update()
+
         if alpha is None and true_min:
             res = minimize(self.get_score, 1, method='Nelder-Mead')
             self.alpha = res.x
@@ -735,15 +753,9 @@ class DEERSpec:
 
         if self.fit_method == 'nnls':
             C = np.concatenate([self.K, alpha * self.L])
-            d = np.concatenate([self.form_factor, np.zeros(shape=self.kernel_len - 2)])
+            d = np.concatenate([self.form_factor, np.zeros(shape=self.K.shape[1] - 2)])
 
             P, _ = nnls(C, d)
-
-        elif self.fit_method == 'tntnn':
-            C = np.concatenate([self.K, alpha * self.L])
-            d = np.concatenate([self.form_factor, np.zeros(shape=self.kernel_len - 2)])
-
-            P, _ = tntnn(C, d, use_AA=True)
 
         elif self.fit_method == 'cvx':
             P = self.get_P_cvx(alpha)
@@ -762,7 +774,7 @@ class DEERSpec:
         """
         K = self.K
         L = self.L
-        points = self.kernel_len
+        points = self.K.shape[1]
 
         # Get initial matrices of optimization
         pre_result = (K.T.dot(K) + alpha**2 * L.T.dot(L))
@@ -826,7 +838,7 @@ class DEERSpec:
 
         H_alpha = self.K.dot(K_alpha)
 
-        nt = self.kernel_len
+        nt = self.K.shape[1]
         score = nt * np.log((np.linalg.norm(s_error) ** 2) / nt) + (2 * np.trace(H_alpha))
 
         return score
@@ -849,7 +861,7 @@ class DEERSpec:
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
-        nt = self.kernel_len
+        nt = self.K.shape[1]
         score = np.linalg.norm(s_error) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
         return score
 
@@ -870,22 +882,33 @@ def do_it_for_me(filename, true_min=False, fit_method='cvx'):
 
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.set_background_correction(kind='ND')
+    spc.background_fit_t = int(np.floor(0.4 * len(spc.time)))
+    print(spc.background_fit_t)
+    spc._update()
+    spc.background_fit_t
     spc.get_fit(true_min=true_min, fit_method=fit_method)
     t2 = time()
 
+    from scipy.fftpack import rfft, irfft, fftshift, ifftshift
+    fig, ax = plt.subplots()
+    thing = fftshift(rfft(spc.real))
+
+    ax.plot()
+    plt.show()
+    input()
+
+    thing = DEERSpec.from_array()
+
+
     print("Fit computed in {}".format(t2 - t1))
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=[30, 10.5])
-    ax1.plot(spc.time, spc.real)
-    ax1.plot(spc.fit_time, spc.fit)
-    ax1.plot(spc.time, spc.background)
+    ax1.plot(spc.time, spc.real, label='Experimental')
+    ax1.plot(spc.fit_time, spc.fit, label='Fit')
+    ax1.plot(spc.time, spc.background, label='background')
     ax2.plot(spc.r, spc.P)
 
     # Get L-curve
-    t1 = time()
     rho, eta, alpha_idx = spc.get_L_curve()
-    t2 = time()
-    print("L-curve computed in {}".format(t2 - t1))
 
     ax3.scatter(rho, eta)
     ax3.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
