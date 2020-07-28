@@ -6,7 +6,7 @@ from time import time
 
 fit_methods = ['nnls', 'cvx']
 for fit_method in fit_methods:
-
+    print('Fit method: ', fit_method)
     do_it_for_me('Example_DEER.DTA', fit_method=fit_method)
 
 

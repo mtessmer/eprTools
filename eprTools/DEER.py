@@ -67,7 +67,7 @@ class DEERSpec:
     >>> plt.plot()
     """
 
-    def __init__(self, time, spec_real, spec_imag, r, do_phase, do_zero_time=True):
+    def __init__(self, time, spec_real, spec_imag, **kwargs):
 
         # Working values
         self.time = time
@@ -84,20 +84,20 @@ class DEERSpec:
 
         # Kernel parameters
         self.K = None
-        self.r = r
+        self.r = kwargs.get('r', (15, 80))
         self.fit_time = time
 
         # Default phase and trimming parameters
         self.phi = None
-        self.do_phase = do_phase
-        self.do_zero_time = do_zero_time
+        self.do_phase = kwargs.get('do_phase', True)
+        self.do_zero_time = kwargs.get('do_zero_time', True)
         self.trim_length = None
         self.zt = None
-        self.L_criteria = 'gcv'
+        self.L_criteria = kwargs.get('L_criteria', 'gcv')
 
         # Default background correction parameters
-        self.background_kind = '3D'
-        self.background_k = 1
+        self.background_kind = kwargs.get('background_kind', '3D')
+        self.background_k = kwargs.get('background_k', 1)
         self.background_fit_t = None
 
         # Background correction results
@@ -167,7 +167,7 @@ class DEERSpec:
             spec_imag = spec_imag.mean(axis=0)
 
         # Construct DEERSpec object
-        return cls(time, spec_real, spec_imag, r, do_phase)
+        return cls(time, spec_real, spec_imag, r=r, do_phase=do_phase)
 
     @classmethod
     def from_array(cls, time, spec_real, spec_imag=None, r=(15, 80), do_zero_time=False):
@@ -179,7 +179,8 @@ class DEERSpec:
             do_phase = False
 
         # Construct DEERSpec object
-        return cls(time, spec_real, spec_imag, r, do_phase=do_phase, do_zero_time=do_zero_time)
+        return cls(time, spec_real, spec_imag, r=r,
+                   do_phase=do_phase, do_zero_time=do_zero_time)
 
     @classmethod
     def from_distribution(cls, r, P, time=3500):
@@ -192,14 +193,13 @@ class DEERSpec:
             Probability density of the distribution corresponding to the distance coordinate array
         :return:
         """
-        time = np.linspace(0, time, len(r))
+        K, r, time = generate_kernel(r, time, size=len(P))
 
-        K = generate_kernel(r, time)
         spec_real = K.dot(P)
         spec_imag = np.zeros_like(spec_real)
 
-
-        return cls(time, spec_real, spec_imag, r, do_phase=False, do_zero_time=False)
+        return cls(time, spec_real, spec_imag, background_kind='poly', background_k=0,
+                   r=r, do_phase=False, do_zero_time=False)
 
     def __eq__(self, spc):
         if not isinstance(spc, DEERSpec):
@@ -216,7 +216,6 @@ class DEERSpec:
             return False
         else:
             return True
-
 
     def copy(self):
         """
@@ -695,22 +694,20 @@ class DEERSpec:
             self.background_param = popt
             self.form_factor = self.real
 
-    def _get_background_fit_time(self, rel_start_min=0.1, rel_start_max=0.6):
+    def _get_background_fit_time(self, rel_start_min=0.2, rel_start_max=0.6):
         start_min = np.round(rel_start_min * len(self.fit_time))
         start_max = np.round(rel_start_max * len(self.fit_time))
         tstart_space = np.arange(start_min, start_max, dtype=int)
 
         fit_real = interp1d(self.time, self.real)(self.fit_time)
 
-        form_factor_space = np.empty((len(tstart_space), len(fit_real)))
+        bkg_score = np.empty(len(tstart_space))
         for i, tstart in enumerate(tstart_space):
             background, mod_depth = fit_nd_background(fit_real, np.abs(self.fit_time), tstart)
-            form_factor_space[i] = fit_real / background
-            form_factor_space[i] /= form_factor_space[i].max()
+            ffi = fit_real - background
+            bkg_score[i] = np.abs(ffi).sum()
 
-        ffts = np.fft.fft(form_factor_space)
-        ffts = ffts - ffts.mean(axis=0)
-        score_idx = np.argmin(np.sum(np.abs(ffts[:, :2]), axis=1))
+        score_idx = np.argmin(bkg_score)
 
         return np.argmin(np.abs(self.time - self.fit_time[tstart_space[score_idx]]))
 
@@ -882,25 +879,14 @@ def do_it_for_me(filename, true_min=False, fit_method='cvx'):
 
     t1 = time()
     spc = DEERSpec.from_file(filename)
-    spc.background_fit_t = int(np.floor(0.4 * len(spc.time)))
+    #spc.background_fit_t = int(np.floor(0.4 * len(spc.time)))
     print(spc.background_fit_t)
     spc._update()
     spc.background_fit_t
     spc.get_fit(true_min=true_min, fit_method=fit_method)
     t2 = time()
-
-    from scipy.fftpack import rfft, irfft, fftshift, ifftshift
-    fig, ax = plt.subplots()
-    thing = fftshift(rfft(spc.real))
-
-    ax.plot()
-    plt.show()
-    input()
-
-    thing = DEERSpec.from_array()
-
-
     print("Fit computed in {}".format(t2 - t1))
+
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=[30, 10.5])
     ax1.plot(spc.time, spc.real, label='Experimental')
     ax1.plot(spc.fit_time, spc.fit, label='Fit')

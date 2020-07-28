@@ -123,6 +123,7 @@ def fit_nd_background(s, t, fit_start):
 
     fit_time = t[fit_start:]
     fit_real = s[fit_start:]
+
     try:
         popt, pcov = curve_fit(homogeneous_3d, fit_time, fit_real,
                                p0=(1e-5, 0.7), bounds=[(1e-7, 0.4), (1e-1, 1)])
