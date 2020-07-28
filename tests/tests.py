@@ -1,5 +1,6 @@
 import pytest, pickle
 import numpy as np
+from scipy.stats import norm
 import matplotlib.pyplot as plt
 from eprTools import utils, DEERSpec
 
@@ -29,6 +30,24 @@ class TestDEER:
 
         assert spc_true == spc
 
+    def test_from_distribution(self):
+        r = np.linspace(1, 100, 256)
+        P = norm(45, 3).pdf(r)
+        P /= P.sum()
+        time = 3500
+        spc = DEERSpec.from_distribution(r, P, time)
+        spc.get_fit()
+
+        plt.plot(r, P)
+        plt.plot(spc.r, spc.P)
+        plt.show()
+
+        plt.plot(spc.time, spc.raw_spec_real)
+        plt.plot(spc.time, spc.background)
+
+        plt.show()
+
+
     @pytest.mark.parametrize('method', ['nnls', 'cvx'])
     def test_fit_method(self, method):
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
@@ -46,7 +65,7 @@ class TestDEER:
     with np.load('test_data/set_phase.npz') as f:
         for i in range(len(f.files)):
             V_ts.append(f[f'arr_{i}'])
-    print(V_ts)
+
     @pytest.mark.parametrize('phase, expected', zip(phi, V_ts))
     def test_set_phase(self, phase, expected):
         true_real, true_imag = expected
