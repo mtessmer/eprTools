@@ -415,6 +415,7 @@ class DEERSpec:
         >>> plt.show()
         """
         self.trim_length = trim
+        self.background_fit_t = None
         self._update()
 
     def set_zero_time(self, zt=None):
@@ -555,6 +556,13 @@ class DEERSpec:
         self.time = self.time[:cutoff]
         self.real = self.real[:cutoff]
         self.imag = self.imag[:cutoff]
+
+        if self.K is not None:
+            size = self.K.shape[1]
+        else:
+            size = len(self.raw_time)
+
+        self.fit_time = np.linspace(self.time.min(), self.time.max(), size)
 
     def phase(self):
         """
