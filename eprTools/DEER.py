@@ -176,7 +176,6 @@ class DEERSpec:
         # Create 0 vector for imaginary component if it is not provided
         if spec_imag is None:
             spec_imag = np.zeros(len(spec_real))
-            do_phase = False
 
         # Construct DEERSpec object
         return cls(time, spec_real, spec_imag, r=r,
@@ -198,7 +197,7 @@ class DEERSpec:
         spec_real = K.dot(P)
         spec_imag = np.zeros_like(spec_real)
 
-        return cls(time, spec_real, spec_imag, background_kind='poly', background_k=0,
+        return cls(time, spec_real, spec_imag, background_kind='3D', background_k=0,
                    r=r, do_phase=False, do_zero_time=False)
 
     def __eq__(self, spc):
@@ -310,7 +309,7 @@ class DEERSpec:
             # Preallocate L-Curve data
             rho = np.zeros(len(alpha_list))
             eta = np.zeros(len(alpha_list))
-            best_alpha_score = 100000
+            best_alpha_score = np.inf
             best_alpha = 1
 
             # Compute (gcv or aic) score of each alpha and store the optimal alpha and score
@@ -686,13 +685,11 @@ class DEERSpec:
             popt, pcov = curve_fit(homogeneous_3d, np.abs(fit_time), fit_real,
                                    p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.4, 0), (1e-1, 1, 6)])
 
-
             self.background = homogeneous_3d(np.abs(self.time), *popt)
             self.modulation_depth = 1 - popt[1]
             self.d = popt[2]
             self.background_param = popt
             self.form_factor = self.real
-
 
         elif self.background_kind == 'poly':
 
@@ -702,7 +699,7 @@ class DEERSpec:
             self.background_param = popt
             self.form_factor = self.real
 
-    def _get_background_fit_time(self, rel_start_min=0.2, rel_start_max=0.6):
+    def _get_background_fit_time(self, rel_start_min=0, rel_start_max=1):
         start_min = np.round(rel_start_min * len(self.fit_time))
         start_max = np.round(rel_start_max * len(self.fit_time))
         tstart_space = np.arange(start_min, start_max, dtype=int)
@@ -842,9 +839,10 @@ class DEERSpec:
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
-
+        if np.trace(H_alpha) < 0:
+            return np.inf
         nt = self.K.shape[1]
-        score = nt * np.log((np.linalg.norm(s_error) ** 2) / nt) + (2 * np.trace(H_alpha))
+        score = nt * np.log((s_error @ s_error) / nt) + (2 * np.trace(H_alpha))
 
         return score
 
@@ -866,8 +864,10 @@ class DEERSpec:
         K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
 
         H_alpha = self.K.dot(K_alpha)
+        if np.trace(H_alpha) < 0:
+            return np.inf
         nt = self.K.shape[1]
-        score = np.linalg.norm(s_error) ** 2 / (1 - np.trace(H_alpha) / nt) ** 2
+        score = (s_error @ s_error) / ((1 - np.trace(H_alpha) / nt) ** 2)
         return score
 
 
@@ -886,12 +886,9 @@ def do_it_for_me(filename, true_min=False, fit_method='cvx'):
     """
 
     t1 = time()
-    spc = DEERSpec.from_file(filename)
-    #spc.background_fit_t = int(np.floor(0.4 * len(spc.time)))
-    print(spc.background_fit_t)
-    spc._update()
-    spc.background_fit_t
+    spc = DEERSpec.from_file(filename, r=(15, 120))
     spc.get_fit(true_min=true_min, fit_method=fit_method)
+    print('background K', spc.background_param)
     t2 = time()
     print("Fit computed in {}".format(t2 - t1))
 
