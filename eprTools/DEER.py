@@ -438,7 +438,7 @@ class DEERSpec:
         self.zt = zt;
         self._update()
 
-    def set_background_correction(self, kind='3D', k=1, fit_time=None):
+    def set_background_correction(self, kind='3D', k=1):
         """
         Perform background correction.
 
@@ -464,8 +464,6 @@ class DEERSpec:
         """
         self.background_kind = kind
         self.background_k = k
-        if fit_time is not None:
-            self.background_fit_t = fit_time
         self._update()
 
     def set_L_criteria(self, mode):
@@ -658,13 +656,11 @@ class DEERSpec:
         allow for this as well as sqrt(Background) adjustments.
         """
 
-        # calculate t0 for fit_t if none given
-        if self.background_fit_t is None:
-            self.background_fit_t = self._get_background_fit_time()
-
-        # Use last 3/4 of data to fit background
-        fit_time = self.time[self.background_fit_t:]
-        fit_real = self.real[self.background_fit_t:]
+        def score_background(x, d, t):
+            k, a = x
+            background = homogeneous_3d(t, k, a)
+            ffi = self.real - background
+            return np.sum(np.abs(ffi))  # @ np.abs(t)
 
         if self.background_kind in ['3D', '2D']:
             if self.background_kind == '2D':
@@ -672,8 +668,8 @@ class DEERSpec:
             elif self.background_kind == '3D':
                 self.d = 3
 
-            popt, pcov = curve_fit(lambda t, k, a: homogeneous_3d(np.abs(t), k, a, self.d), fit_time, fit_real,
-                                   p0=(1e-5, 0.7), bounds=[(1e-7, 0.5), (1e-1, 1)])
+            res = minimize(score_background, x0=[1e-5, 0.7], args=(self.d, self.time), bounds=[(1e-7, 0.4), (1e-1, 1)])
+            popt = res.x
 
             self.background = homogeneous_3d(np.abs(self.time), *popt, self.d)
             self.modulation_depth = 1 - popt[1]
@@ -682,8 +678,9 @@ class DEERSpec:
 
         elif self.background_kind == 'ND':
 
-            popt, pcov = curve_fit(homogeneous_3d, np.abs(fit_time), fit_real,
-                                   p0=(1e-5, 0.7, 3), bounds=[(1e-7, 0.4, 0), (1e-1, 1, 6)])
+            res = minimize(score_background, x0=[1e-5, 0.7, 3], args=(self.fit_time),
+                           bounds=[(1e-7, 0.4, 0.), (1e-1, 1, 6)])
+            popt = res.x
 
             self.background = homogeneous_3d(np.abs(self.time), *popt)
             self.modulation_depth = 1 - popt[1]
@@ -693,28 +690,11 @@ class DEERSpec:
 
         elif self.background_kind == 'poly':
 
-            popt = np.polyfit(fit_time, fit_real, deg=self.background_k)
+            popt = np.polyfit(self.time, self.real, deg=self.background_k)
             self.background = np.polyval(popt, self.time)
             self.modulation_depth = 1 - popt[-1]
             self.background_param = popt
             self.form_factor = self.real
-
-    def _get_background_fit_time(self, rel_start_min=0, rel_start_max=1):
-        start_min = np.round(rel_start_min * len(self.fit_time))
-        start_max = np.round(rel_start_max * len(self.fit_time))
-        tstart_space = np.arange(start_min, start_max, dtype=int)
-
-        fit_real = interp1d(self.time, self.real)(self.fit_time)
-
-        bkg_score = np.empty(len(tstart_space))
-        for i, tstart in enumerate(tstart_space):
-            background, mod_depth = fit_nd_background(fit_real, np.abs(self.fit_time), tstart)
-            ffi = fit_real - background
-            bkg_score[i] = np.abs(ffi).sum()
-
-        score_idx = np.argmin(bkg_score)
-
-        return np.argmin(np.abs(self.time - self.fit_time[tstart_space[score_idx]]))
 
     def get_fit(self, alpha=None, true_min=False, fit_method='cvx'):
         """

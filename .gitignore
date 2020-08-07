@@ -4,4 +4,6 @@ build/
 dist/
 eprTools/__pycache__/
 .idea/
+eprTools.egg-info/
+
 EPyR - A python package for scripted analysis of EPR  spectra.docx

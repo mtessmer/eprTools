@@ -85,7 +85,7 @@ def homogeneous_3d(t, k, a, d=3):
         number of dimensions
 
     """
-    return a * np.exp(-k * (t ** (d / 3)))
+    return a * np.exp(-k * (np.abs(t) ** (d / 3)))
 
 
 def generate_background(a, k, j, d=3, time=3500, size=200):
