@@ -228,7 +228,7 @@ class CWSpec:
                                   initial=0)
         first_integral = first_integral - min(first_integral)
 
-        self.spec = self.spec / np.trapz(first_integral, self.field)
+        self.spec /= np.trapz(first_integral, self.field)
 
     def center(self, center_field=0):
         # Find the min and max of the spectra
@@ -239,12 +239,13 @@ class CWSpec:
         myMidSub = self.spec[Xmax:Xmin]
         subMidpoint = (np.abs(myMidSub)).argmin()
         midIdx = Xmax + subMidpoint
-
-        midPoint = self.field[midIdx]
+        midPoint = self.field[midIdx] - center_field
+        self.center_field = self.field[midIdx]
+        shape = np.minimum(midIdx, len(self.spec) - midIdx)
 
         # Set field s.t. the spectral midpoint is at center_field
-        self.cfield = np.arange(-500, 500)  # self.field - midPoint + center_field
-        self.cspec = self.spec[midIdx - 500: midIdx + 500]
+        self.cfield = self.field[midIdx - shape: midIdx + shape] - midPoint  # self.field - midPoint + center_field
+        self.cspec = self.spec[midIdx - shape: midIdx + shape]
 
     # Special Methods
     def __add__(self, a):
