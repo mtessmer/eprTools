@@ -22,6 +22,7 @@ class DEERSpec:
         self.s_error = np.inf
 
         # L-curve misc
+        self.params = [0, 0]
         self.alpha_idx = None
         self.rho = None
         self.eta = None
@@ -31,19 +32,24 @@ class DEERSpec:
         r = kwargs.get('r', (15, 80))
         if len(r) == 2:
             self.r = np.linspace(r[0], r[1], len(self.time))
+        else:
+            self.r = r
 
-        self.L = reg_operator(self.time)
-
-        # Alpha range
-        self.alpha_range = None
+        self.L = reg_operator(self.r)
 
         # Default phase and trimming parameters
-        self.phi = None
-        self.do_phase = kwargs.get('do_phase', True)
-        self.do_zero_time = kwargs.get('do_zero_time', True)
         self.trim_length = None
+        self.user_trim = False
+
+        self.phi = None
+        self.user_phi = False
+        self.do_phase = kwargs.get('do_phase', True)
+
         self.zt = None
-        self.L_criteria = kwargs.get('L_criteria', 'gcv')
+        self.user_zt = False
+        self.do_zero_time = kwargs.get('do_zero_time', True)
+
+        self.L_criteria = kwargs.get('L_criteria', 'aic')
 
         # Default background correction parameters
         self.bg_model = homogeneous_nd
@@ -172,6 +178,12 @@ class DEERSpec:
         if self.do_zero_time:
             self.zero_time()
 
+    def set_trim(self, trim):
+        self.trim_length = trim
+        self.user_trim = True
+        self.zt = None
+        self._update()
+
     def trim(self):
         """
         Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts.
@@ -180,11 +192,10 @@ class DEERSpec:
         self.time = self.raw_time[mask]
         self.spec = self.raw_spec[mask]
 
-        # Normalize values
-
-        self.spec /= max(self.spec)
-        self.real = self.spec.real
-        self.imag = self.spec.imag
+    def set_phase(self, phi):
+        self.phi = phi
+        self.user_phi = True
+        self._update()
 
     def phase(self):
         """
@@ -215,10 +226,10 @@ class DEERSpec:
         # Adjust phase
         self.spec = self.spec * np.exp(1j * self.phi)
 
-        # normalize
-        self.spec /= max(self.spec)
-        self.real = self.spec.real
-        self.imag = self.spec.imag
+    def set_zero_time(self, zero_time):
+        self.user_zt = True
+        self.zt = zero_time
+        self._update()
 
     def zero_time(self):
         """
@@ -256,7 +267,12 @@ class DEERSpec:
 
         self.time -= self.zt
 
-    def residual(self, params):
+        # Normalize values
+        self.spec /= self.spec[np.argmin(np.abs(self.time))]
+        self.real = self.spec.real
+        self.imag = self.spec.imag
+
+    def residual(self, params, fit_alpha=False):
         # Get dipolar kernel
         K, r, t = generate_kernel(self.r, self.time)
 
@@ -265,18 +281,25 @@ class DEERSpec:
         self.background = self.bg_model(self.time, *params[1:])
 
         self.K = (1 - self.lam + self.lam * K) * self.background[:, None]
-        self.alpha_range = np.log10(reg_range(self.K, self.L))
-        self.alpha = fminbound(self.get_score, min(self.alpha_range), max(self.alpha_range), xtol=0.01)
 
+        diff = np.abs(self.params - params) / params
+        if np.all(diff < 1e-1) and not fit_alpha:
+            self.get_score(self.alpha)
+        else:
+            self.alpha_range = np.log10(reg_range(self.K, self.L))
+            self.alpha = fminbound(self.get_score, min(self.alpha_range), max(self.alpha_range), xtol=0.01)
+
+        self.params = params.copy()
         return self.s_error
 
     def get_fit(self):
 
         #Intelligent fist guesses
         lam0 = (self.real.max() - self.real.min()) * 2 / 3
-        least_squares(self.residual, x0=(lam0, 1e-4))
-        #params = SVP(self.residual, x0=(lam0, 1e-4), lb=(0, 1e-7), ub=(0.5, 1e-3), ftol=1e-8)
-        #params
+        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-3]), ftol=1e-9)
+        #SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
+
+        self.residual(self.params, fit_alpha=True)
 
     def get_score(self, alpha):
         """

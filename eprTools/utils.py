@@ -217,16 +217,14 @@ def gsvd(A, B):
     Q1 = Q[0:m, 0:p]
     Q2 = Q[m:m+n, 0:p]
 
-    U1, s1, V1 = svd(Q1)
-
-    U,_,_,C,S = csd(Q1, Q2)
+    U, _, _, C, S = csd(Q1, Q2)
 
     # Vector of generalized singular values.
     q = min(m+n, p)
     # Supress divide by 0 warning
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        U = np.vstack((np.zeros((q-m,1),'double'), np.diag(C,max(0,q-m)).reshape(len(np.diag(C,max(0,q-m))),1))) /  np.vstack((np.diag(S,0).reshape(len(np.diag(S,0)),1), np.zeros((q-n,1),'double') ))
+        U = np.vstack((np.zeros((q-m, 1), 'double'), np.diag(C, max(0, q-m)).reshape(len(np.diag(C, max(0, q-m))), 1))) / np.vstack((np.diag(S, 0).reshape(len(np.diag(S, 0)), 1), np.zeros((q-n,1),'double') ))
 
     return U
 
