@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize._numdiff import approx_derivative
 
 
-def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-5, maxiter=100):
+def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-8, maxiter=100):
     """Solve snlls problem using the Secant Projection Method (Song et al. 2020)
     :param func:
     :param x0:
@@ -15,7 +15,8 @@ def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-5, maxiter=100):
     :returns
 
     """
-    x = np.array(x0)
+    x0 = np.asarray(x0)
+    x = x0.copy()
     lb, ub = np.asarray(lb), np.asarray(ub)
     Jac = approx_derivative(func, x)
     res = func(x)
@@ -26,7 +27,7 @@ def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-5, maxiter=100):
         d = -np.linalg.inv(Jac.T @ Jac + np.eye(len(x))) @ (Jac.T @ res)
 
         # Apply step, and ensure it is withing the bounds
-        x += d
+        x += d * 2
         x = np.maximum(x, lb)
         x = np.minimum(x, ub)
 
@@ -34,10 +35,10 @@ def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-5, maxiter=100):
         resn = func(x)
 
         # Apply wolfe condition
-        cl = 1e-6
+        cl = 1e-4
         w_iter = 0
-        while (resn @ resn) > (res @ res + 2 * cl * res @ Jac @ d) and w_iter < 20:
-            d *= 0.8
+        while (resn @ resn) > (res @ res + 2 * cl * res @ Jac @ d) and w_iter < 10:
+            d *= 0.9
             w_iter += 1
 
         # Check ftol
@@ -55,6 +56,6 @@ def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-5, maxiter=100):
         if np.linalg.norm(d) < xtol * (xtol + np.linalg.norm(x)):
             print('XTOL')
             break
-
+    print(f"Converged in {i} iterations")
     print(d)
-    return x
+    return

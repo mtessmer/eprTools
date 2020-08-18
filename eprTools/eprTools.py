@@ -222,7 +222,7 @@ def fit_zero_time(data):
     tmax = real_interp.argmax()
     
     half_tmax = int(tmax/2)    
-    low_moment = moment_about_zero(real_interp[tmax -half_tmax:tmax + half_tmax + 1 ])
+    low_moment = moment_about_zero(real_interp[tmax -half_tmax:tmax + half_tmax + 1])
     tmaxnew = tmax
     for i in range(half_tmax, 500):
         try_moment = moment_about_zero(real_interp[i - half_tmax: i + half_tmax + 1])
