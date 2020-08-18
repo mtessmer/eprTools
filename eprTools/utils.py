@@ -68,7 +68,7 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     K = C_z * np.cos(trigterm) + S_z * np.sin(trigterm)
 
     # Correct for error introduced by divide by zero error
-    K[time == 0] = 1
+    K[time == 0] = 1.
 
     return K, r, time
 
@@ -113,45 +113,6 @@ def read_param_file(param_file):
                 param_dict[key] = val
 
     return param_dict
-
-
-def cvxnnls(V, K, L, alpha, M=None, beta=0):
-    """
-    :param V:
-    :param K:
-    :param L:
-    :param alpha:
-    :param M:
-    :param beta:
-    :return:
-    """
-    points = K.shape[1]
-
-    # Get initial matrices of optimization
-    if M is None or beta == 0:
-        pre_result = K.T @ K + alpha**2 * L.T @ L
-    else:
-        pre_result = K.T @ K + alpha**2 * L.T @ L + beta**2 * M.T @ M
-
-    # get unconstrained solution as starting point.
-    P = np.linalg.inv(pre_result).dot(K.T).dot(V)
-    P = P.clip(min=0)
-
-    B = cvo.matrix(pre_result)
-
-    A = cvo.matrix(-(K.T.dot(V.T)))
-
-    # Minimize with CVXOPT constrained to P >= 0
-    lower_bound = cvo.matrix(np.zeros(points))
-    G = -cvo.matrix(np.eye(points, points))
-    cvo.solvers.options['show_progress'] = False
-    cvo.solvers.options['abstol'] = 1e-9
-    cvo.solvers.options['reltol'] = 1e-8
-    fit_dict = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))
-    P = fit_dict['x']
-    P = np.asarray(P).reshape(points)
-
-    return P
 
 
 def reg_range(K, L, noiselvl=0., logres=0.1):

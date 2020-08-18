@@ -1,9 +1,13 @@
 from copy import deepcopy
+import numbers
+from collections import Sized
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize, fminbound, least_squares
 import matplotlib.pyplot as plt
-from eprTools.utils import homogeneous_nd, read_param_file, generate_kernel, reg_range, reg_operator, cvxnnls
+from eprTools.utils import homogeneous_nd, read_param_file, generate_kernel, reg_range, reg_operator
+from eprTools.nnls_funcs import NNLS_FUNCS
+from eprTools.selection_methods import SELECTION_METHODS
 from eprTools.SVP import SVP
 
 
@@ -14,28 +18,6 @@ class DEERSpec:
         self.spec = spec / max(spec)
         self.real = self.spec.real
         self.imag = self.spec.imag
-
-        # Fit results
-        self.fit = None
-        self.alpha = None
-        self.P = None
-        self.s_error = np.inf
-
-        # L-curve misc
-        self.params = [0, 0]
-        self.alpha_idx = None
-        self.rho = None
-        self.eta = None
-
-        # Kernel parameters
-        self.K = None
-        r = kwargs.get('r', (15, 80))
-        if len(r) == 2:
-            self.r = np.linspace(r[0], r[1], len(self.time))
-        else:
-            self.r = r
-
-        self.L = reg_operator(self.r)
 
         # Default phase and trimming parameters
         self.trim_length = None
@@ -49,7 +31,24 @@ class DEERSpec:
         self.user_zt = False
         self.do_zero_time = kwargs.get('do_zero_time', True)
 
-        self.L_criteria = kwargs.get('L_criteria', 'aic')
+        # Fit results
+        self.nnls = kwargs.get('nnls', 'cvxnnls')
+        self.fit = None
+        self.alpha = None
+        self.P = kwargs.get('P', None)
+        self.residuals = np.inf
+
+        # L-curve misc
+        self.params = [0, 0]
+        self.alpha_idx = None
+        self.rho = None
+        self.eta = None
+
+        # Kernel parameters
+        self.K = None
+        self.r = kwargs.get('r', (15, 80))
+        self.L = reg_operator(self.r)
+        self.selection_method = kwargs.get('L_criteria', 'aic')
 
         # Default background correction parameters
         self.bg_model = homogeneous_nd
@@ -137,24 +136,64 @@ class DEERSpec:
         """
         K, r, time = generate_kernel(r, time, size=len(P))
 
-        spec_real = K.dot(P)
-        spec_imag = np.zeros_like(spec_real)
+        spec = K.dot(P)
+        spec = np.asarray(spec, dtype=complex)
 
-        return cls(time, spec_real, spec_imag, background_kind='3D', background_k=0,
-                   r=r, do_phase=False, do_zero_time=False)
+        return cls(time, spec, background_kind='3D', background_k=0,
+                   r=r, do_phase=False, do_zero_time=False, P=P)
+
+    @property
+    def r(self):
+        return self._r
+
+    @r.setter
+    def r(self, value):
+        if isinstance(value, numbers.Number):
+            self._r = np.linspace(0, value, len(self.time))
+        elif isinstance(value, Sized):
+            if len(value) == 2:
+                self._r = np.linspace(*value, len(self.time))
+            elif len(value) == 3:
+                self._r = np.linspace(*value)
+            else:
+                self._r = np.asarray(value)
+        self._update()
+
+    @property
+    def nnls(self):
+        return self._nnls
+
+    @nnls.setter
+    def nnls(self, value):
+        if value in NNLS_FUNCS.keys():
+            self._nnls=NNLS_FUNCS[value]
+        elif callable(value):
+            self._nnls = value
+        else:
+            raise KeyError(f"{value} is not a recognized nnls method or function")
+
+    @property
+    def selection_method(self):
+        return self._selection_method
+
+    @selection_method.setter
+    def selection_method(self, value):
+        if isinstance(value, str):
+            value = value.lower()
+
+        if value in SELECTION_METHODS.keys():
+            self._selection_method = SELECTION_METHODS[value]
+        elif callable(value):
+            self._selection_method = value
+        else:
+            raise KeyError(f"{value} is not a recognized selection method or function")
 
     def __eq__(self, spc):
         if not isinstance(spc, DEERSpec):
             return False
-        elif np.any(spc.raw_time != self.raw_time):
+        elif not np.allclose(spc.time, self.time):
             return False
-        elif np.any(spc.raw_spec_real != self.raw_spec_real):
-            return False
-        elif np.any(spc.raw_spec_imag != self.raw_spec_imag):
-            return False
-        elif np.any(spc.K != self.K):
-            return False
-        elif self.alpha != self.alpha:
+        elif not np.allclose(spc.spec, self.spec):
             return False
         else:
             return True
@@ -193,6 +232,9 @@ class DEERSpec:
         self.spec = self.raw_spec[mask]
 
     def set_phase(self, phi):
+        if np.abs(phi) > 2 * np.pi:
+            phi = np.deg2rad(phi)
+
         self.phi = phi
         self.user_phi = True
         self._update()
@@ -236,7 +278,7 @@ class DEERSpec:
         Sets t=0 where 0th moment of a sliding window is closest to 0
         """
         time = np.arange(self.time.min(), self.time.max() + 1)
-        real = interp1d(self.time, self.real)(time)
+        real = interp1d(self.time, self.spec.real)(time)
 
         def zero_moment(data):
             xSize = int(len(data) / 2)
@@ -268,7 +310,8 @@ class DEERSpec:
         self.time -= self.zt
 
         # Normalize values
-        self.spec /= self.spec[np.argmin(np.abs(self.time))]
+        zero_val = self.spec[np.argmin(np.abs(self.time))]
+        self.spec /= np.maximum(abs(zero_val.real), abs(zero_val.imag))
         self.real = self.spec.real
         self.imag = self.spec.imag
 
@@ -290,15 +333,13 @@ class DEERSpec:
             self.alpha = fminbound(self.get_score, min(self.alpha_range), max(self.alpha_range), xtol=0.01)
 
         self.params = params.copy()
-        return self.s_error
+        return self.residuals
 
     def get_fit(self):
-
         #Intelligent fist guesses
         lam0 = (self.real.max() - self.real.min()) * 2 / 3
         least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-3]), ftol=1e-9)
         #SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
-
         self.residual(self.params, fit_alpha=True)
 
     def get_score(self, alpha):
@@ -315,56 +356,8 @@ class DEERSpec:
             the L_curve critera score for the given alpha and fit
         """
 
-        self.P = cvxnnls(self.real, self.K, self.L, alpha)
+        # Get initial matrices of optimization
+        self.P = self.nnls(self.K, self.L, self.real, alpha)
         self.fit = self.K @ self.P
-        self.s_error = self.real - self.fit
-
-        if self.L_criteria == 'gcv':
-            return self.get_GCV_score(alpha, self.s_error)
-        elif self.L_criteria == 'aic':
-            return self.get_AIC_score(alpha, self.s_error)
-
-    def get_AIC_score(self, alpha, s_error):
-        """
-        Gets the Akaike Information Critera (AIC) score for a given fit with a given smoothing parameter.
-
-        :param alpha: float
-            Smoothing parameter
-
-        :param fit: numpy ndarray
-            The NNLS fit of the the time domain signal for the given alpha parameter.
-
-        :returns score: float
-            the AIC score for the given alpha and fit
-        """
-        K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
-
-        H_alpha = self.K.dot(K_alpha)
-        if np.trace(H_alpha) < 0:
-            return np.inf
-        nt = self.K.shape[1]
-        score = nt * np.log((s_error @ s_error) / nt) + (2 * np.trace(H_alpha))
-
-        return score
-
-    def get_GCV_score(self, alpha, s_error):
-        """
-        Gets the Generalized cross validation (GCV) score for a given fit with a given smoothing parameter.
-
-        :param alpha: float
-            Smoothing parameter
-
-        :param fit: numpy ndarray
-            The NNLS fit of the the time domain signal for the given alpha parameter.
-
-        :returns score: float
-            the GCV score for the given alpha and fit
-        """
-        K_alpha = np.linalg.inv((self.K.T.dot(self.K) + (alpha ** 2) * self.L.T.dot(self.L))).dot(self.K.T)
-
-        H_alpha = self.K.dot(K_alpha)
-        if np.trace(H_alpha) < 0:
-            return np.inf
-        nt = self.K.shape[1]
-        score = (s_error @ s_error) / ((1 - np.trace(H_alpha) / nt) ** 2)
-        return score
+        self.residuals = self.real - self.fit
+        return self.selection_method(self.K, self.L, alpha, self.residuals)

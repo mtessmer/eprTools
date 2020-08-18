@@ -3,8 +3,9 @@ import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from eprTools import utils, DEERSpec
+import cvxopt as cvo
 from time import time
-import deerlab as dl
+#import deerlab as dl
 # Generate parameters and load test_data for tests
 r = np.linspace(15, 100, 2 ** 10)
 t = np.linspace(-1000, 4500, 2 ** 10)
@@ -29,27 +30,101 @@ class TestDEER:
         with open('test_data/from_file.pkl', 'rb') as f:
             spc_true = pickle.load(f)
 
-        fig, ax = plt.subplots(2)
-        ax[0].plot(spc.time[:50], spc.real[:50])
-        ax[0].axvline(0)
-        ax[1].plot(spc.raw_time[:50], spc.raw_real[:50])
-        ax[1].axvline(0)
-        plt.show()
         assert spc_true == spc
 
     def test_default(self):
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=(15, 60))
-        t1 = time()
+        r = np.linspace(15, 100, 256)
+        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
+        spc.set_zero_time(-75)
+        #t1 = time()
         spc.get_fit()
-        print('mht_fit_time: ', time() - t1)
+        # print('mht_fit_time: ', time() - t1)
 
-        fig, (ax1, ax2) = plt.subplots(2)
-        ax1.plot(spc.time, spc.real)
-        ax1.plot(spc.time, spc.fit)
-        ax1.plot(spc.time, spc.background - spc.lam)
+        # t1 = time()
+        # f = dl.fitsignal(spc.real, spc.time, spc.r)
+        # print('dl_fit_time: ', time() - t1)
+        #
+        # fig, (ax1, ax2) = plt.subplots(2)
+        # ax1.plot(spc.time, spc.real)
+        # ax1.plot(spc.time, spc.fit)
+        # ax1.plot(spc.time, spc.background - spc.lam)
+        # ax1.plot(spc.time, f.V)
+        # print(dir(f))
+        # ax1.plot(spc.time, f.B - f.bgparam)
+        # ax2.plot(spc.r, spc.P)
+        # ax2.plot(spc.r, f.P)
+        # plt.show()
 
-        ax2.plot(spc.r, spc.P)
-        plt.show()
+        with open('test_data/default.pkl', 'rb') as f:
+            spc_true = pickle.load(f)
+
+        np.testing.assert_almost_equal(spc.fit, spc_true.fit)
+        np.testing.assert_almost_equal(spc.P, spc_true.P)
+        np.testing.assert_almost_equal(spc.K, spc_true.K)
+
+    def test_spnnls(self):
+        r = np.linspace(15, 100, 256)
+        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
+        spc.set_zero_time(-75)
+        spc.nnls = 'spnnls'
+        spc.get_fit()
+
+        with open('test_data/spnnls.pkl', 'rb') as f:
+            spc_true = pickle.load(f)
+
+        np.testing.assert_almost_equal(spc.fit, spc_true.fit)
+        np.testing.assert_almost_equal(spc.P, spc_true.P)
+        np.testing.assert_almost_equal(spc.K, spc_true.K)
+
+    def test_extra_reg(self):
+        r = np.linspace(15, 100, 256)
+        t = np.linspace(-500, 3500, 256)
+        K, r, t = utils.generate_kernel(r, t)
+        P = norm(30, 1).pdf(r) + 20 * norm(105, 5).pdf(r)
+        P /= P.sum()
+        S = K @ P
+        lam = 0.15
+        B = np.exp(-1e-5 * np.abs(t))
+        V = (1 - lam + lam * S) * B + np.random.normal(0, 0.001, 256)
+
+        spc = DEERSpec.from_array(t, V, r)
+
+        def extra_reg_nnls(K, L, V, alpha, abstol=1e-9, reltol=1e-8):
+            beta = 10
+            M = np.zeros(len(r))
+            M[r > 60] = 1
+            M = np.diag(M)
+
+            KtK = K.T @ K + alpha ** 2 * L.T @ L + beta ** 2 * M.T @ M
+            KtV = - K.T @ V.T
+
+            # get unconstrained solution as starting point.
+            P = np.linalg.inv(KtK) @ KtV
+            P = P.clip(min=0)
+
+            B = cvo.matrix(KtK)
+
+            A = cvo.matrix(KtV)
+
+            # Minimize with CVXOPT constrained to P >= 0
+            lower_bound = cvo.matrix(np.zeros_like(P))
+            G = -cvo.matrix(np.eye(len(P), len(P)))
+            cvo.solvers.options['show_progress'] = False
+            cvo.solvers.options['abstol'] = abstol
+            cvo.solvers.options['reltol'] = reltol
+            fit_dict = cvo.solvers.qp(B, A, G, lower_bound, initvals=cvo.matrix(P))
+            P = fit_dict['x']
+            P = np.squeeze(np.asarray(P))
+
+            return P
+
+        spc.nnls = extra_reg_nnls
+        spc.get_fit()
+
+        with np.load('test_data/extra_reg.npz') as f:
+            np.testing.assert_almost_equal(spc.fit, f['fit'])
+            np.testing.assert_almost_equal(spc.P, f['P'])
+            np.testing.assert_almost_equal(spc.K, f['K'])
 
     def test_from_distribution(self):
         r = np.linspace(1, 100, 256)
@@ -57,56 +132,14 @@ class TestDEER:
         P /= P.sum()
         time = 3500
         spc = DEERSpec.from_distribution(r, P, time)
-        spc.get_fit()
 
-        plt.plot(r, P)
-        plt.plot(spc.r, spc.P)
-        plt.show()
+        with open('test_data/from_distribution.pkl', 'rb') as f:
+            spc_true = pickle.load(f)
 
-        plt.plot(spc.time, spc.raw_spec_real)
-        plt.plot(spc.time, spc.background)
+        np.testing.assert_almost_equal(spc_true.spec, spc.spec)
+        np.testing.assert_almost_equal(P, spc.P)
 
-        plt.show()
-
-    def test_bg_corr(self):
-        from eprTools import generate_kernel, DEERSpec
-        import numpy as np
-        import matplotlib.pyplot as plt
-        from scipy.stats import norm
-
-        d = np.linspace(20, 120, 10)
-        rin = np.linspace(20, 150, 512)
-        r = np.linspace(20, 80, 512)
-        t = np.linspace(-500, 6500, 512)
-        Kin, r, t = generate_kernel(rin, t)
-        k = 4e-5
-        mod_depth = 0.08
-        bg = np.exp(-k * np.abs(t))
-        for mu in d:
-            fig, ax = plt.subplots(1, 3, figsize=(30, 10.5))
-            P = norm(mu, 4).pdf(rin)
-            P /= P.sum()
-            V_t = (1 - mod_depth + mod_depth * (Kin.dot(P))) * bg
-            V_t /= V_t.max()
-            spc = DEERSpec.from_array(time=t, spec_real=V_t, spec_imag=np.zeros(len(V_t)), r=(15, 100))
-            spc.get_fit()
-            print(spc.background_param)
-            ax[0].plot(rin, P / P.sum())
-            ax[0].plot(spc.r, spc.P / spc.P.sum())
-            ax[0].legend(['True P(r)', 'Fit P(r)'])
-
-            ax[1].plot(spc.time, spc.real)
-            ax[1].plot(t, V_t)
-            ax[1].plot(spc.fit_time, spc.fit)
-            ax[1].plot(spc.time, spc.background)
-            ax[1].legend(['spc vt', 'provided vt', 'fit vt', 'background'])
-
-            ax[2].scatter(spc.rho, spc.eta)
-            ax[2].scatter(spc.rho[spc.alpha_idx], spc.eta[spc.alpha_idx], color='r')
-            plt.show()
-
-
-    @pytest.mark.parametrize('method', ['nnls', 'cvx'])
+    @pytest.mark.parametrize('method', ['spnnls', 'cvxnnls'])
     def test_fit_method(self, method):
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
         spc.get_fit(fit_method=method)
@@ -126,11 +159,12 @@ class TestDEER:
 
     @pytest.mark.parametrize('phase, expected', zip(phi, V_ts))
     def test_set_phase(self, phase, expected):
-        true_real, true_imag = expected
+        true_spec = expected
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
         spc.set_phase(phase)
-        np.testing.assert_almost_equal(true_real, spc.real)
-        np.testing.assert_almost_equal(true_imag, spc.imag)
+        print(phase)
+
+        np.testing.assert_almost_equal(true_spec, spc.spec)
 
 
 class TestUtils:
