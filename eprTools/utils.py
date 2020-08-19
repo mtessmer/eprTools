@@ -64,7 +64,10 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     omega_dd = (2 * np.pi * 52.0410) / (r ** 3)
     trigterm = np.outer(np.abs(time), omega_dd)
     z = np.sqrt((6 * trigterm / np.pi))
-    S_z, C_z = fresnel(z) / z
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        S_z, C_z = fresnel(z) / z
+
     K = C_z * np.cos(trigterm) + S_z * np.sin(trigterm)
 
     # Correct for error introduced by divide by zero error

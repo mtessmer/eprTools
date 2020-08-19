@@ -62,6 +62,22 @@ class TestDEER:
         np.testing.assert_almost_equal(spc.P, spc_true.P)
         np.testing.assert_almost_equal(spc.K, spc_true.K)
 
+    r = np.linspace(15, 100, 256)
+    t = np.linspace(-500, 3500, 256)
+    K, r, t = utils.generate_kernel(r, t)
+    P = norm(30, 1).pdf(r) + 20 * norm(105, 5).pdf(r)
+    P /= P.sum()
+    S = K @ P
+    lam = 0.15
+    B = np.exp(-1e-5 * np.abs(t))
+    V = (1 - lam + lam * S) * B + np.random.normal(0, 0.001, 256)
+
+    def test_from_array(self, V):
+        spc = DEERSpec.from_array(t, V, r)
+        spc.save("test_data/from_array.pkl")
+        with open("test_data/from_array.pkl", 'rb') as f:
+            spc_true = pickle.load(f)
+
     def test_spnnls(self):
         r = np.linspace(15, 100, 256)
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
@@ -77,16 +93,6 @@ class TestDEER:
         np.testing.assert_almost_equal(spc.K, spc_true.K)
 
     def test_extra_reg(self):
-        r = np.linspace(15, 100, 256)
-        t = np.linspace(-500, 3500, 256)
-        K, r, t = utils.generate_kernel(r, t)
-        P = norm(30, 1).pdf(r) + 20 * norm(105, 5).pdf(r)
-        P /= P.sum()
-        S = K @ P
-        lam = 0.15
-        B = np.exp(-1e-5 * np.abs(t))
-        V = (1 - lam + lam * S) * B + np.random.normal(0, 0.001, 256)
-
         spc = DEERSpec.from_array(t, V, r)
 
         def extra_reg_nnls(K, L, V, alpha, abstol=1e-9, reltol=1e-8):

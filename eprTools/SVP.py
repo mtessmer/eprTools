@@ -27,7 +27,7 @@ def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-8, maxiter=100):
         d = -np.linalg.inv(Jac.T @ Jac + np.eye(len(x))) @ (Jac.T @ res)
 
         # Apply step, and ensure it is withing the bounds
-        x += d * 2
+        x += d
         x = np.maximum(x, lb)
         x = np.minimum(x, ub)
 

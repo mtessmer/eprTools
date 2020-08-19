@@ -1,5 +1,5 @@
 from copy import deepcopy
-import numbers
+import numbers, pickle
 from collections import Sized
 import numpy as np
 from scipy.interpolate import interp1d
@@ -204,6 +204,13 @@ class DEERSpec:
         """
         return deepcopy(self)
 
+    def save(self, filename='DEERSpec.pkl'):
+        """
+        Save DEERSpec object as pickle file
+        """
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
+
     def _update(self):
         """
         Update all self variables except fit. internal use only.
@@ -326,11 +333,12 @@ class DEERSpec:
         self.K = (1 - self.lam + self.lam * K) * self.background[:, None]
 
         diff = np.abs(self.params - params) / params
-        if np.all(diff < 1e-1) and not fit_alpha:
-            self.get_score(self.alpha)
-        else:
-            self.alpha_range = np.log10(reg_range(self.K, self.L))
+        if np.any(diff > 1e-3) or fit_alpha:
+            self.alpha_range = reg_range(self.K, self.L)
             self.alpha = fminbound(self.get_score, min(self.alpha_range), max(self.alpha_range), xtol=0.01)
+
+        else:
+            self.get_score(self.alpha)
 
         self.params = params.copy()
         return self.residuals
@@ -339,8 +347,7 @@ class DEERSpec:
         #Intelligent fist guesses
         lam0 = (self.real.max() - self.real.min()) * 2 / 3
         least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-3]), ftol=1e-9)
-        #SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
-        self.residual(self.params, fit_alpha=True)
+        #self.residual(self.params, fit_alpha=True)
 
     def get_score(self, alpha):
         """
@@ -359,5 +366,6 @@ class DEERSpec:
         # Get initial matrices of optimization
         self.P = self.nnls(self.K, self.L, self.real, alpha)
         self.fit = self.K @ self.P
-        self.residuals = self.real - self.fit
+        self.residuals = self.fit - self.real
+        #self.residuals = np.concatenate([residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
         return self.selection_method(self.K, self.L, alpha, self.residuals)
