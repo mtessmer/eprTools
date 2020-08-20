@@ -53,7 +53,6 @@ class DEERSpec:
         # Default background correction parameters
         self.bg_model = homogeneous_nd
         self.background = None
-        self.background_param = None
 
         # Raw Data Untouched
         self.raw_time = time
@@ -114,14 +113,28 @@ class DEERSpec:
         return cls(time, spec, r=r, do_phase=do_phase)
 
     @classmethod
-    def from_array(cls, time, spec, r=(15, 80), do_phase=False, do_zero_time=False):
+    def from_array(cls, time, spec, r=(15, 80)):
+        """
+        Create a DEERSpec object from an array like data structure.
+
+        :param time: np.ndarray
+            Time axis of the DEER data
+        :param spec: np.ndarray
+            DEER Data array, can be real or complex valued
+        :param r: float, 2-tuple, np.ndarray-like
+            desired distance access, float --> Upper bound, 2-tuple --> (Lower bound, Upper bound), array-like --> axis
+
+        :return: DEERSpec
+            A DEERSpec object with the user supplied data
+
+        >>>
+        >>>
+        >>>
+        >>>
+        """
+
         spec = np.asarray(spec, dtype=complex)
-
-        # Combine real and imaginary
-        # Construct DEERSpec object
-
-        return cls(time, spec, r=r,
-                   do_phase=do_phase, do_zero_time=do_zero_time)
+        return cls(time, spec, r=r,)
 
     @classmethod
     def from_distribution(cls, r, P, time=3500):
@@ -346,8 +359,7 @@ class DEERSpec:
     def get_fit(self):
         #Intelligent fist guesses
         lam0 = (self.real.max() - self.real.min()) * 2 / 3
-        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-3]), ftol=1e-9)
-        #self.residual(self.params, fit_alpha=True)
+        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-2]), ftol=1e-9)
 
     def get_score(self, alpha):
         """
@@ -366,6 +378,19 @@ class DEERSpec:
         # Get initial matrices of optimization
         self.P = self.nnls(self.K, self.L, self.real, alpha)
         self.fit = self.K @ self.P
-        self.residuals = self.fit - self.real
-        #self.residuals = np.concatenate([residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
-        return self.selection_method(self.K, self.L, alpha, self.residuals)
+        residuals = self.fit - self.real
+        self.residuals = np.concatenate([residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
+        return self.selection_method(self.K, self.L, alpha, residuals)
+
+    def conc(self):
+        NA = 6.02214076e23  # Avogadro constant, mol^-1
+        muB = 9.2740100783e-24  # Bohr magneton, J/T (CODATA 2018 value)
+        mu0 = 1.25663706212e-6  # magnetic constant, N A^-2 = T^2 m^3 J^-1 (CODATA 2018)
+        h = 6.62607015e-34  # Planck constant, J/Hz (CODATA 2018)
+        ge = 2.00231930436256  # free-electron g factor (CODATA 2018 value)
+        hbar = h / 2 / np.pi  # reduced Planck constant, J/(rad/s)
+        D = (mu0 / 4 / np.pi) * (muB * ge) ** 2 / hbar  # dipolar constant, m^3 s^-1
+        k = self.params[1] * 1000
+        conc  = k / (8 * np.pi ** 2 / 9 / np.sqrt(3) * self.lam * D * 1e-6)
+        self.conc = conc / (1e-6*1e3*NA)
+        return self.conc
