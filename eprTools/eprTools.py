@@ -334,9 +334,6 @@ def fit_Probability(data, VecDem = 252):
     plt.plot(t, fit, c = 'r')
     
     return np.array((r, P[0])), fit
-    
- 
-
 
 ##Utility functions
 def change_phase(data, phi):

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from eprTools import utils, DEERSpec
 import cvxopt as cvo
 from time import time
-#import deerlab as dl
+import deerlab as dl
 # Generate parameters and load test_data for tests
 r = np.linspace(15, 100, 2 ** 10)
 t = np.linspace(-1000, 4500, 2 ** 10)
@@ -36,13 +36,13 @@ class TestDEER:
         r = np.linspace(15, 100, 256)
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
         spc.set_zero_time(-75)
-        #t1 = time()
-        spc.get_fit()
-        # print('mht_fit_time: ', time() - t1)
+        t1 = time()
+        #spc.get_fit()
+        print('mht_fit_time: ', time() - t1)
 
-        # t1 = time()
-        # f = dl.fitsignal(spc.real, spc.time, spc.r)
-        # print('dl_fit_time: ', time() - t1)
+        t1 = time()
+        f = dl.fitsignal(spc.real, spc.time, spc.r)
+        print('dl_fit_time: ', time() - t1)
         #
         # fig, (ax1, ax2) = plt.subplots(2)
         # ax1.plot(spc.time, spc.real)
@@ -72,25 +72,39 @@ class TestDEER:
     B = np.exp(-1e-5 * np.abs(t))
     V = (1 - lam + lam * S) * B + np.random.normal(0, 0.001, 256)
 
+    def test_uncertainty(self):
+        r = np.linspace(15, 70, 256)
+        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
+        spc.set_zero_time(-75)
+        spc.get_fit()
+        fig, ax = plt.subplots(2)
+        ax[0].plot(spc.time, spc.real)
+        ax[0].plot(spc.time, spc.fit)
+        ax[1].fill_between(spc.r, np.maximum(spc.P - spc.std[2:], 0), spc.P + spc.std[2:], alpha=0.5)
+        ax[1].plot(spc.r, spc.P)
+        plt.show()
+
     def test_from_array(self, V):
         spc = DEERSpec.from_array(t, V, r)
         spc.save("test_data/from_array.pkl")
         with open("test_data/from_array.pkl", 'rb') as f:
             spc_true = pickle.load(f)
 
-    def test_spnnls(self):
+    @pytest.mark.parametrize('method, ans', zip(['cvxnnls', 'spnnls', 'qpnnls'], [0, 0, 0]))
+    def test_nnls(self, method, ans):
+        t1 = time()
         r = np.linspace(15, 100, 256)
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
+        spc.set_trim(3000)
         spc.set_zero_time(-75)
-        spc.nnls = 'spnnls'
+        spc.nnls = method
         spc.get_fit()
+        print(method, ': ', time() - t1)
 
-        with open('test_data/spnnls.pkl', 'rb') as f:
-            spc_true = pickle.load(f)
-
-        np.testing.assert_almost_equal(spc.fit, spc_true.fit)
-        np.testing.assert_almost_equal(spc.P, spc_true.P)
-        np.testing.assert_almost_equal(spc.K, spc_true.K)
+        fig, (ax1, ax2) = plt.subplots(2)
+        ax1.plot(spc.time, spc.real, spc.time, spc.fit)
+        ax2.plot(spc.r, spc.P)
+        plt.show()
 
     def test_extra_reg(self):
         spc = DEERSpec.from_array(t, V, r)

@@ -37,8 +37,8 @@ def SVP(func, x0, lb=(), ub=(), ftol=1e-8, xtol=1e-8, maxiter=100):
         # Apply wolfe condition
         cl = 1e-4
         w_iter = 0
-        while (resn @ resn) > (res @ res + 2 * cl * res @ Jac @ d) and w_iter < 10:
-            d *= 0.9
+        while (resn @ resn) > (res @ res + 2 * cl * res @ Jac @ d) and w_iter < 20:
+            d *= 0.1
             w_iter += 1
 
         # Check ftol

@@ -5,7 +5,7 @@ import numpy as np
 import cvxopt as cvo
 from numba import njit
 from scipy.special import fresnel
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, minimize
 from scipy.linalg import svd
 from scipy.linalg import qr
 
@@ -149,12 +149,16 @@ def reg_range(K, L, noiselvl=0., logres=0.1):
 
     return alphas
 
-def reg_operator(t):
+def reg_operator(t, type='L2'):
     L = np.zeros((len(t) - 2, len(t)))
     diag = np.arange(len(t) - 2)
     L[diag, diag] = 1
     L[diag, diag + 1] = - 2
     L[diag, diag + 2] = 1
+
+    if type=='L2+':
+        L[-1, -3] += 2
+
     return L
 
 def gsvd(A, B):
@@ -339,4 +343,139 @@ def diagp(Y,X,k):
     Y[:,j] = Y[:,j]@D.T
     X[j,:] = D@X[j,:]
     X = X+0 # use "+0" to set possible -0 elements to 0
-    return Y,X
+    return Y, X
+
+
+def hccm(J, *args):
+    """
+    Heteroscedasticity Consistent Covariance Matrix (HCCM)
+    ======================================================
+    Computes the heteroscedasticity consistent covariance matrix (HCCM) of
+    a given LSQ problem given by the Jacobian matrix (J) and the covariance
+    matrix of the data (V). If the residual (res) is specified, the
+    covariance matrix is estimated using some of the methods specified in
+    (mode). The HCCM are valid for both heteroscedasticit and
+    homoscedasticit residual vectors.
+    Usage:
+    ------
+    C = hccm(J,V)
+    C = hccm(J,res,mode)
+    Arguments:
+    ----------
+    J (NxM-element array)
+        Jacobian matrix of the residual vector
+    res (N-element array)
+        Vector of residuals
+    mode (string)
+        HCCM estimator, options are:
+            'HC0' - White, H. (1980)
+            'HC1' - MacKinnon and White, (1985)
+            'HC2' - MacKinnon and White, (1985)
+            'HC3' - Davidson and MacKinnon, (1993)
+            'HC4' - Cribari-Neto, (2004)
+            'HC5' - Cribari-Neto, (2007)
+    Returns:
+    --------
+    C (MxM-element array)
+       Heteroscedasticity consistent covariance matrix
+    References:
+    ------------
+    [1]
+    White, H. (1980). A heteroskedasticity-consistent covariance matrix
+    estimator and a direct test for heteroskedasticity. Econometrica, 48(4), 817-838
+    DOI: 10.2307/1912934
+    [2]
+    MacKinnon and White, (1985). Some heteroskedasticity-consistent covariance
+    matrix estimators with improved finite sample properties. Journal of Econometrics, 29 (1985),
+    pp. 305-325. DOI: 10.1016/0304-4076(85)90158-7
+    [3]
+    Davidson and MacKinnon, (1993). Estimation and Inference in Econometrics
+    Oxford University Press, New York.
+    [4]
+    Cribari-Neto, F. (2004). Asymptotic inference under heteroskedasticity of
+    unknown form. Computational Statistics & Data Analysis, 45(1), 215-233
+    DOI: 10.1016/s0167-9473(02)00366-3
+    [5]
+    Cribari-Neto, F., Souza, T. C., & Vasconcellos, K. L. P. (2007). Inference
+    under heteroskedasticity and leveraged data. Communications in Statistics –
+    Theory and Methods, 36(10), 1877-1888. DOI: 10.1080/03610920601126589
+    """
+
+    # Unpack inputs
+    if len(args) == 2:
+        res, mode = args
+        V = []
+    elif len(args) == 1:
+        V = args[0]
+
+    # Hat matrix
+    H = J @ np.linalg.pinv(J.T @ J) @ J.T
+    # Get leverage
+    h = np.diag(H)
+    # Number of parameters (k) & Number of variables (n)
+    n, k = np.shape(J)
+
+    if not V:
+        # Select estimation method using established nomenclature
+        if mode.upper() == 'HC0':  # White,(1980),[1]
+            # Estimate the data covariance matrix
+            V = np.diag(res ** 2)
+
+        elif mode.upper() == 'HC1':  # MacKinnon and White,(1985),[2]
+            # Estimate the data covariance matrix
+            V = n / (n - k) * np.diag(res ** 2)
+
+        elif mode.upper() == 'HC2':  # MacKinnon and White,(1985),[2]
+            # Estimate the data covariance matrix
+            V = np.diag(res ** 2 / (1 - h))
+
+        elif mode.upper() == 'HC3':  # Davidson and MacKinnon,(1993),[3]
+            # Estimate the data covariance matrix
+            V = np.diag(res / (1 - h)) ** 2
+
+        elif mode.upper() == 'HC4':  # Cribari-Neto,(2004),[4]
+            # Compute discount factor
+            delta = min(4, n * h / k)
+            # Estimate the data covariance matrix
+            V = np.diag(res ** 2. / ((1 - h) ** delta))
+
+        elif mode.upper() == 'HC5':  # Cribari-Neto,(2007),[5]
+            # Compute inflation factor
+            k = 0.7
+            alpha = min(max(4, k * max(h) / np.mean(h)), h / np.mean(h))
+            # Estimate the data covariance matrix
+            V = np.diag(res ** 2. / (np.sqrt((1 - h) ** alpha)))
+
+        else:
+            raise KeyError('HCCM estimation mode not found.')
+
+    # Heteroscedasticity Consistent Covariance Matrix (HCCM) estimator
+    C = np.linalg.pinv(J.T @ J) @ J.T @ V @ J @ np.linalg.pinv(J.T @ J)
+    return C
+
+
+def get_imag_norm_squared(phi, x):
+    spec_imag = np.imag(x * np.exp(1j * phi))
+    return spec_imag @ spec_imag
+
+
+def multi_phase(spec):
+    # See if you can linearize this problem
+    phi0 = np.arctan2(np.imag(spec)[:, -1], np.real(spec)[:, -1])
+
+    for i, (scan, phi0i) in enumerate(zip(spec, phi0)):
+
+        # Use last 7/8ths of data to fit phase
+        fit_set = scan[int(round(len(scan) / 8)):]
+
+        # Find Phi that minimizes norm of imaginary data
+        phiopt = minimize(get_imag_norm_squared, phi0i, args=(fit_set,))
+        phi = phiopt.x
+        scani = scan * np.exp(1j * phi)
+
+        # Test for 180 degree inversion of real data
+        if np.real(scani).sum() < 0:
+            phi = phi + np.pi
+
+        spec[i] = scan * np.exp(1j * phi)
+    return spec

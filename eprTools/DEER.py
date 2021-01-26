@@ -4,12 +4,13 @@ from collections import Sized
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize, fminbound, least_squares
+from scipy.optimize._numdiff import approx_derivative
 import matplotlib.pyplot as plt
-from eprTools.utils import homogeneous_nd, read_param_file, generate_kernel, reg_range, reg_operator
+from eprTools.utils import homogeneous_nd, read_param_file, generate_kernel, reg_range
+from eprTools.utils import reg_operator, hccm, get_imag_norm_squared, multi_phase
 from eprTools.nnls_funcs import NNLS_FUNCS
 from eprTools.selection_methods import SELECTION_METHODS
-from eprTools.SVP import SVP
-
+from .SVP import SVP
 
 class DEERSpec:
     def __init__(self, time, spec, **kwargs):
@@ -47,7 +48,7 @@ class DEERSpec:
         # Kernel parameters
         self.K = None
         self.r = kwargs.get('r', (15, 80))
-        self.L = reg_operator(self.r)
+        self.L = reg_operator(self.r, type='L2+')
         self.selection_method = kwargs.get('L_criteria', 'aic')
 
         # Default background correction parameters
@@ -63,7 +64,7 @@ class DEERSpec:
         self._update()
 
     @classmethod
-    def from_file(cls, file_name, r=(15, 80)):
+    def from_file(cls, file_name, r=(15, 80), **kwargs):
 
         # Look for time from DSC file
         param_file = file_name[:-3] + 'DSC'
@@ -101,16 +102,20 @@ class DEERSpec:
         # TODO: Impliment this as an option because I can't imagine that all specs do this
         if n_scans > 1:
             spec.shape = (n_scans, -1)
-            spec = spec[10:]
+            #spec = spec[10:]
             # Delete zeros at end of array (uncompleted scans)
             spec = spec[~np.all(spec == 0, axis=1)]
+            spec = multi_phase(spec)
+
+            do_phase = False
 
             # Roll with the mean for now.
             # TODO: Implement usage of individual scans in the future.
             spec = spec.mean(axis=0)
 
+
         # Construct DEERSpec object
-        return cls(time, spec, r=r, do_phase=do_phase)
+        return cls(time, spec, r=r, do_phase=do_phase, **kwargs)
 
     @classmethod
     def from_array(cls, time, spec, r=(15, 80)):
@@ -134,7 +139,7 @@ class DEERSpec:
         """
 
         spec = np.asarray(spec, dtype=complex)
-        return cls(time, spec, r=r,)
+        return cls(time, spec, r=r, do_zero_time=False)
 
     @classmethod
     def from_distribution(cls, r, P, time=3500):
@@ -270,12 +275,8 @@ class DEERSpec:
             # Use last 7/8ths of data to fit phase
             fit_set = self.spec[int(round(len(self.spec) / 8)):]
 
-            def get_imag_norm_squared(phi):
-                spec_imag = np.imag(fit_set * np.exp(1j * phi))
-                return spec_imag @ spec_imag
-
             # Find Phi that minimizes norm of imaginary data
-            phi = minimize(get_imag_norm_squared, phi0)
+            phi = minimize(get_imag_norm_squared, (fit_set, phi0))
             phi = phi.x
             spec = self.spec * np.exp(1j * phi)
 
@@ -335,6 +336,16 @@ class DEERSpec:
         self.real = self.spec.real
         self.imag = self.spec.imag
 
+    def get_kernel(self, params):
+        K, r, t = generate_kernel(self.r, self.time)
+
+        # Add background to kernel
+        lam = params[0]
+        background = self.bg_model(self.time, *params[1:])
+
+        K = (1 - lam + lam * K) * background[:, None]
+        return K
+
     def residual(self, params, fit_alpha=False):
         # Get dipolar kernel
         K, r, t = generate_kernel(self.r, self.time)
@@ -354,12 +365,14 @@ class DEERSpec:
             self.get_score(self.alpha)
 
         self.params = params.copy()
-        return self.residuals
+        return self.regres
 
     def get_fit(self):
         #Intelligent fist guesses
         lam0 = (self.real.max() - self.real.min()) * 2 / 3
-        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-2]), ftol=1e-9)
+        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-2]), xtol=1e-10, ftol=1e-10)
+        #SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
+        self.get_uncertainty()
 
     def get_score(self, alpha):
         """
@@ -378,9 +391,9 @@ class DEERSpec:
         # Get initial matrices of optimization
         self.P = self.nnls(self.K, self.L, self.real, alpha)
         self.fit = self.K @ self.P
-        residuals = self.fit - self.real
-        self.residuals = np.concatenate([residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
-        return self.selection_method(self.K, self.L, alpha, residuals)
+        self.residuals = self.fit - self.real
+        self.regres = np.concatenate([self.residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
+        return self.selection_method(self.K, self.L, alpha, self.residuals)
 
     def conc(self):
         NA = 6.02214076e23  # Avogadro constant, mol^-1
@@ -394,3 +407,28 @@ class DEERSpec:
         conc  = k / (8 * np.pi ** 2 / 9 / np.sqrt(3) * self.lam * D * 1e-6)
         self.conc = conc / (1e-6*1e3*NA)
         return self.conc
+
+    def get_uncertainty(self):
+        """
+        :return:
+        """
+        # Get jacobian of linear and nonlinear fits
+        func = lambda params: self.get_kernel(params) @ self.P
+        Jac = np.reshape(approx_derivative(func, self.params), (-1, self.params.size))
+        Jac = np.concatenate([Jac, self.K], 1)
+        Jreg = self.alpha * self.L
+        Jreg = np.concatenate((np.zeros((self.L.shape[0], len(self.params))), Jreg), 1)
+        Jac = np.concatenate([Jac, Jreg])
+
+
+        resreg = self.alpha * self.L @ self.P
+        res = np.concatenate([self.residuals, resreg])
+        self.covmatrix = hccm(Jac, res, 'HC1')
+        std = np.sqrt(np.diag(self.covmatrix))
+        self.std = std[2:]
+        self.ustd = self.P + self.std
+        self.lstd = np.maximum(0, self.P - self.std)
+
+        self.params_std = std[:2]
+
+

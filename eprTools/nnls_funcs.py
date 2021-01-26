@@ -1,7 +1,7 @@
 import cvxopt as cvo
 import numpy as np
 from scipy.optimize import nnls
-
+import quadprog
 NNLS_FUNCS={}
 def nnls_function(func):
     NNLS_FUNCS[func.__name__] = func
@@ -45,4 +45,26 @@ def spnnls(K, L, V, alpha):
     C = np.concatenate([K, alpha * L])
     d = np.concatenate([V, np.zeros(L.shape[0])])
     P, norm = nnls(C, d)
+    return P
+
+@nnls_function
+def qpnnls(K, L, V, alpha, reltol=1e-8, abstol=1e-9):
+    """
+    """
+
+    KtK = K.T @ K + alpha ** 2 * L.T @ L
+    KtV = K.T @ V.T
+
+    # get unconstrained solution as starting point.
+    P = np.linalg.inv(KtK) @ KtV
+    P = P.clip(min=0)
+
+    # Minimize with CVXOPT constrained to P >= 0
+    lower_bound = np.zeros_like(P)
+    G = np.eye(len(P), len(P))
+
+
+    fit = quadprog.solve_qp(KtK, KtV, G, lower_bound)
+    P = fit[0]
+
     return P
