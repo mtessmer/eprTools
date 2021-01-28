@@ -298,17 +298,12 @@ class DEERSpec:
         """
         Sets t=0 where 0th moment of a sliding window is closest to 0
         """
-        time = np.arange(self.time.min(), self.time.max() + 1)
+        res = 10
+        time = np.linspace(self.time.min(), self.time.max(), res)
         real = interp1d(self.time, self.spec.real)(time)
 
-        def zero_moment(data):
-            xSize = int(len(data) / 2)
-            xData = np.arange(-xSize, xSize + 1)
-
-            if len(xData) != len(data):
-                xData = xData[:-1]
-
-            return np.dot(data, xData)
+        def zero_moment(data, time):
+            return np.abs(np.sum(data * time - time[0]))
 
         if not self.zt:
             # make zero_moment of all windows tx(spec_max_idx)/2 and find minimum
@@ -320,9 +315,9 @@ class DEERSpec:
             for i in range(spec_max_idx - half_spec_max_idx, spec_max_idx + half_spec_max_idx):
                 lFrame = i - half_spec_max_idx
                 uFrame = i + half_spec_max_idx + 1
-                test_moment = zero_moment(self.real[lFrame: uFrame])
+                test_moment = zero_moment(real[lFrame: uFrame], time[lFrame:uFrame])
 
-                if abs(test_moment) < abs(low_moment):
+                if test_moment < low_moment:
                     low_moment = test_moment
                     spec_max_idx = i
 
