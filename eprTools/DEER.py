@@ -48,8 +48,8 @@ class DEERSpec:
         # Kernel parameters
         self.K = None
         self.r = kwargs.get('r', (15, 80))
-        self.L = reg_operator(self.r, type='L2+')
-        self.selection_method = kwargs.get('L_criteria', 'aic')
+        self.L = reg_operator(self.r, type='L2')
+        self.selection_method = kwargs.get('L_criteria', 'gcv')
 
         # Default background correction parameters
         self.bg_model = homogeneous_nd
@@ -292,6 +292,7 @@ class DEERSpec:
     def set_zero_time(self, zero_time):
         self.user_zt = True
         self.zt = zero_time
+        self.do_zero_time=True
         self._update()
 
     def zero_time(self):
@@ -299,11 +300,13 @@ class DEERSpec:
         Sets t=0 where 0th moment of a sliding window is closest to 0
         """
         res = 10
-        time = np.linspace(self.time.min(), self.time.max(), res)
-        real = interp1d(self.time, self.spec.real)(time)
+        time = np.linspace(self.time.min(), self.time.max(), (len(self.time) - 1) * res + 1)
+        real = interp1d(self.time, self.real, kind='cubic')(time)
+        real /= real.max()
 
-        def zero_moment(data, time):
-            return np.abs(np.sum(data * time - time[0]))
+        def zero_moment(data, t):
+            mid_idx = int((len(t) - 1) / 2)
+            return np.abs(np.sum(data * (t - t[mid_idx])))
 
         if not self.zt:
             # make zero_moment of all windows tx(spec_max_idx)/2 and find minimum
@@ -312,16 +315,17 @@ class DEERSpec:
             low_moment = np.inf
 
             # search near spec_max_idx for min(abs(int(frame)))
+            corr_idx = 0
             for i in range(spec_max_idx - half_spec_max_idx, spec_max_idx + half_spec_max_idx):
                 lFrame = i - half_spec_max_idx
                 uFrame = i + half_spec_max_idx + 1
-                test_moment = zero_moment(real[lFrame: uFrame], time[lFrame:uFrame])
+                test_moment = zero_moment(real[lFrame:uFrame], time[lFrame:uFrame])
 
                 if test_moment < low_moment:
                     low_moment = test_moment
-                    spec_max_idx = i
+                    corr_idx = lFrame
 
-            self.zt = time[spec_max_idx]
+            self.zt = time[corr_idx]
 
         self.time -= self.zt
 
@@ -354,19 +358,24 @@ class DEERSpec:
         diff = np.abs(self.params - params) / params
         if np.any(diff > 1e-3) or fit_alpha:
             self.alpha_range = reg_range(self.K, self.L)
-            self.alpha = fminbound(self.get_score, min(self.alpha_range), max(self.alpha_range), xtol=0.01)
+            log_alpha = fminbound(lambda x: self.get_score(10**x),
+                                   np.log10(min(self.alpha_range)), np.log10(max(self.alpha_range)), xtol=0.01)
+            self.alpha = 10 ** log_alpha
 
-        else:
-            self.get_score(self.alpha)
+        self.get_score(self.alpha)
+
 
         self.params = params.copy()
         return self.regres
 
     def get_fit(self):
-        #Intelligent fist guesses
-        lam0 = (self.real.max() - self.real.min()) * 2 / 3
-        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-2]), xtol=1e-10, ftol=1e-10)
-        #SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
+
+        # Intelligent fist guesses
+        self.score = np.inf
+        lam0 = (self.real.max() - self.real.min()) / 4
+        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-1]), ftol=1e-10)
+
+        # SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
         self.get_uncertainty()
 
     def get_score(self, alpha):
@@ -382,12 +391,12 @@ class DEERSpec:
         :returns score: float
             the L_curve critera score for the given alpha and fit
         """
-
         # Get initial matrices of optimization
         self.P = self.nnls(self.K, self.L, self.real, alpha)
         self.fit = self.K @ self.P
         self.residuals = self.fit - self.real
         self.regres = np.concatenate([self.residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
+
         return self.selection_method(self.K, self.L, alpha, self.residuals)
 
     def conc(self):
