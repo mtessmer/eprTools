@@ -98,13 +98,17 @@ class DEERSpec:
         spec.shape = (-1, 2)
         spec = spec[:, 0] + 1j * spec[:, 1]
 
-        # Drop first ten scans because for some reason our spec phase shifts during early scans
-        # TODO: Impliment this as an option because I can't imagine that all specs do this
+        # If the experiment is 2D
         if n_scans > 1:
+            # Reshape to a 2D matrix
             spec.shape = (n_scans, -1)
-            #spec = spec[10:]
-            # Delete zeros at end of array (uncompleted scans)
-            spec = spec[~np.all(spec == 0, axis=1)]
+
+            # Trim scans cut short of the predetermined number
+            mask = ~np.all(spec == 0, axis=1)
+            if ~mask.sum():
+                spec = spec[mask]   # All scans that are 0
+                spec = spec[:-1]    # Last scan that wasn't all 0 probably was cut short
+
             spec = multi_phase(spec)
 
             do_phase = False
@@ -357,9 +361,11 @@ class DEERSpec:
 
         diff = np.abs(self.params - params) / params
         if np.any(diff > 1e-3) or fit_alpha:
+
             self.alpha_range = reg_range(self.K, self.L)
             log_alpha = fminbound(lambda x: self.get_score(10**x),
                                    np.log10(min(self.alpha_range)), np.log10(max(self.alpha_range)), xtol=0.01)
+
             self.alpha = 10 ** log_alpha
 
         self.get_score(self.alpha)
@@ -372,7 +378,7 @@ class DEERSpec:
 
         # Intelligent fist guesses
         self.score = np.inf
-        lam0 = (self.real.max() - self.real.min()) / 4
+        lam0 = (self.real.max() - self.real.min())
         least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-1]), ftol=1e-10)
 
         # SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)

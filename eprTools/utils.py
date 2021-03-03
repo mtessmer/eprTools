@@ -126,6 +126,7 @@ def reg_range(K, L, noiselvl=0., logres=0.1):
     minmax_ratio = minmax_ratio * 2 ** (noiselvl / 0.0025)
 
     # Get generalized singular values of K and L
+
     singularValues = gsvd(K, L)
 
     DerivativeOrder = L.shape[1] - L.shape[0]  # get order of derivative (=number of inf in singval)
@@ -189,6 +190,7 @@ def gsvd(A, B):
 
     # Vector of generalized singular values.
     q = min(m+n, p)
+
     # Supress divide by 0 warning
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
