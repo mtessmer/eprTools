@@ -2,7 +2,7 @@ import pytest, pickle
 import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
-from eprTools import utils, DEERSpec
+from eprTools import utils, DEERSpec, CWSpec
 import cvxopt as cvo
 from time import time
 import deerlab as dl
@@ -186,6 +186,16 @@ class TestDEER:
 
         np.testing.assert_almost_equal(true_spec, spc.spec)
 
+
+class TestCWSpec:
+
+    def test_abs_first_moment(self):
+        spc = CWSpec.from_file('test_data/170216_01_A28R5_25uM.DTA', preprocess=True)
+        print(spc.abs_first_moment)
+
+    def test_second_moment(self):
+        spc = CWSpec.from_file('test_data/170216_01_A28R5_25uM.DTA', preprocess=True)
+        print(spc.second_moment)
 
 class TestUtils:
 

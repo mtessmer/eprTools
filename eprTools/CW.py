@@ -285,18 +285,17 @@ class CWSpec:
     def __mul__(self, a):
         return CW_spec(self.field, a * self.spec)
 
-    # Analysis methods
+
+    @property
     def abs_first_moment(self):
-        iSpec = cumtrapz(self.spec, self.field, initial=0)
-        cen_field_arg = iSpec.argmax()
+        H_hat = np.trapz(self.absorbance_spectrum * self.field, self.field)
+        return np.trapz(np.abs(self.field - H_hat) * self.absorbance_spectrum, self.field)
+    @property
+    def second_moment(self):
+        H_hat = np.trapz(self.absorbance_spectrum * self.field, self.field)
+        integral = ((self.field - H_hat)**2) * self.absorbance_spectrum
+        return np.trapz(integral, self.field)
 
-        plt.plot(iSpec)
-        plt.axhline(0, 0, 1024)
-        plt.show()
-
-        M = 0
-        for i in range(cen_field_arg + 1):
-            M = M + np.abs(self.field[i] - self.field[cen_field_arg]) * iSpec[i]
-
-        M = M * 2
-        return M
+    @property
+    def absorbance_spectrum(self):
+        return cumtrapz(self.spec, self.field, initial=0)
