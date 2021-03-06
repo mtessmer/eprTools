@@ -349,6 +349,13 @@ class DEERSpec:
         K = (1 - lam + lam * K) * background[:, None]
         return K
 
+    def get_fit(self):
+        self.score = np.inf
+        opt = least_squares(self.residual, x0=(0.3, 1e-4), bounds=([0., 0.], [1., 1e-1]), ftol=1e-10)
+        #self.residual(opt.x, fit_alpha=True)
+        # SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
+        self.get_uncertainty()
+
     def residual(self, params, fit_alpha=False):
         # Get dipolar kernel
         K, r, t = generate_kernel(self.r, self.time)
@@ -364,25 +371,15 @@ class DEERSpec:
 
             self.alpha_range = reg_range(self.K, self.L)
             log_alpha = fminbound(lambda x: self.get_score(10**x),
-                                   np.log10(min(self.alpha_range)), np.log10(max(self.alpha_range)), xtol=0.01)
+                                   np.log10(min(self.alpha_range)), np.log10(max(self.alpha_range)), xtol=0.0001)
 
             self.alpha = 10 ** log_alpha
 
         self.get_score(self.alpha)
-
-
         self.params = params.copy()
+
         return self.regres
 
-    def get_fit(self):
-
-        # Intelligent fist guesses
-        self.score = np.inf
-        lam0 = (self.real.max() - self.real.min())
-        least_squares(self.residual, x0=(lam0, 1e-4), bounds=([0., 0.], [1., 1e-1]), ftol=1e-10)
-
-        # SVP(self.residual, x0=(lam0, 1e-4), lb=(0., 0.), ub=(1., 1e-2), ftol=1e-9, xtol=1e-9)
-        self.get_uncertainty()
 
     def get_score(self, alpha):
         """
@@ -399,11 +396,25 @@ class DEERSpec:
         """
         # Get initial matrices of optimization
         self.P = self.nnls(self.K, self.L, self.real, alpha)
+
         self.fit = self.K @ self.P
         self.residuals = self.fit - self.real
-        self.regres = np.concatenate([self.residuals, alpha * self.L @ self.P, alpha * self.L @ self.P])
 
-        return self.selection_method(self.K, self.L, alpha, self.residuals)
+        self.regres = np.concatenate([self.residuals * 10, alpha * self.L @ self.P, alpha * self.L @ self.P])
+        self.score = self.selection_method(self.K, self.L, alpha, self.residuals)
+        return self.score
+
+    def get_L_curve(self):
+        rho = np.zeros_like(self.alpha_range)
+        eta = np.zeros_like(self.alpha_range)
+        Ps = [self.nnls(self.K, self.L, self.real, alpha) for alpha in self.alpha_range]
+        fits = [self.K @ P for P in Ps]
+        errs = [fit - self.real for fit in fits]
+        rho = [np.log(np.linalg.norm(err)) for err in errs]
+        eta = [np.log(np.linalg.norm(self.L @ P)) for P in Ps]
+        alpha_idx = np.argmin(np.abs(self.alpha_range - self.alpha))
+    
+        return rho, eta, alpha_idx
 
     def conc(self):
         NA = 6.02214076e23  # Avogadro constant, mol^-1
