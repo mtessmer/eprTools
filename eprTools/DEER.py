@@ -405,15 +405,18 @@ class DEERSpec:
         return self.score
 
     def get_L_curve(self):
-        rho = np.zeros_like(self.alpha_range)
-        eta = np.zeros_like(self.alpha_range)
-        Ps = [self.nnls(self.K, self.L, self.real, alpha) for alpha in self.alpha_range]
-        fits = [self.K @ P for P in Ps]
-        errs = [fit - self.real for fit in fits]
-        rho = [np.log(np.linalg.norm(err)) for err in errs]
-        eta = [np.log(np.linalg.norm(self.L @ P)) for P in Ps]
+        """
+        calculate L-curve and return rho, eta and the chosen index
+
+        :return rho, eta, alpha_idx:
+        """
+        Ps = np.array([self.nnls(self.K, self.L, self.real, alpha) for alpha in self.alpha_range])
+        fits = self.K @ Ps.T
+        errs = fits - self.real.T[:, None]
+        rho = np.log(np.linalg.norm(errs.T, axis=1))
+        eta = np.log(np.linalg.norm((self.L @ Ps.T).T, axis=1))
         alpha_idx = np.argmin(np.abs(self.alpha_range - self.alpha))
-    
+
         return rho, eta, alpha_idx
 
     def conc(self):
