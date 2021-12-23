@@ -12,6 +12,7 @@ from eprTools.nnls_funcs import NNLS_FUNCS
 from eprTools.selection_methods import SELECTION_METHODS
 from .SVP import SVP
 
+
 class DEERSpec:
     def __init__(self, time, spec, **kwargs):
         # Working values
@@ -280,7 +281,7 @@ class DEERSpec:
             fit_set = self.spec[int(round(len(self.spec) / 8)):]
 
             # Find Phi that minimizes norm of imaginary data
-            phi = minimize(get_imag_norm_squared, (fit_set, phi0))
+            phi = minimize(get_imag_norm_squared, phi0, (fit_set,))
             phi = phi.x
             spec = self.spec * np.exp(1j * phi)
 
@@ -368,7 +369,8 @@ class DEERSpec:
 
             self.alpha_range = reg_range(self.K, self.L)
             log_alpha = fminbound(lambda x: self.get_score(10**x),
-                                   np.log10(min(self.alpha_range)), np.log10(max(self.alpha_range)), xtol=0.01)
+                                  np.log10(min(self.alpha_range)),
+                                  np.log10(max(self.alpha_range)), xtol=0.01)
 
             self.alpha = 10 ** log_alpha
 
@@ -395,10 +397,9 @@ class DEERSpec:
 
         self.fit = self.K @ self.P
         self.residuals = self.fit - self.real
-
         self.regres = np.concatenate([self.residuals, alpha * self.L @ self.P])
-        # Regres is not as large as deerlab because self.P is smaller because its per Angstrom not per nm
 
+        # Regres is not as large as deerlab because self.P is smaller because its per Angstrom not per nm
         self.score = self.selection_method(self.K, self.L, alpha, self.residuals)
         return self.score
 
