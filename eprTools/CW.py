@@ -224,7 +224,7 @@ def load_winepr(file, file_name):
 
     try:
         param_dict = {}
-        with open(param_file, 'r') as f:
+        with open(param_file, 'r', encoding='utf8', errors='ignore') as f:
 
             for line in f:
 
