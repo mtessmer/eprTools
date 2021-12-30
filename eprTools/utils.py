@@ -1,12 +1,11 @@
 import numbers
 import warnings
 from collections.abc import Sized
+
+import matplotlib.pyplot as plt
 import numpy as np
-import cvxopt as cvo
-from numba import njit
 from scipy.special import fresnel
-from scipy.optimize import curve_fit, minimize
-from scipy.linalg import svd
+from scipy.optimize import minimize
 from scipy.linalg import qr
 
 
@@ -150,17 +149,17 @@ def reg_range(K, L, noiselvl=0., logres=0.1):
 
     return alphas
 
-def reg_operator(t, type='L2'):
-    L = np.zeros((len(t) - 2, len(t)))
-    diag = np.arange(len(t) - 2)
-    L[diag, diag] = 1
-    L[diag, diag + 1] = - 2
-    L[diag, diag + 2] = 1
+def reg_operator(t, kind='L2'):
+    loffset, uoffset = (0, None) if kind[-1] == '+' else (1, -1)
 
-    if type=='L2+':
-        L[-1, -3] += 2
+    L = np.zeros((len(t), len(t)))
+    diag = np.arange(len(t))
 
-    return L
+    L[diag[:-1], diag[1:]] = 1
+    L[diag, diag] = - 2
+    L[diag[1:], diag[:-1]] = 1
+
+    return L[loffset:uoffset]
 
 def gsvd(A, B):
 #===============================================================================
@@ -461,23 +460,35 @@ def get_imag_norm_squared(phi, x):
     return spec_imag @ spec_imag
 
 
+def get_imag_norms_squared(phi, x):
+    spec_imag = np.imag(x[:, None] * np.exp(1j * phi)[None, :, None])
+
+    return (spec_imag * spec_imag).sum(-1)
+
+
 def multi_phase(spec):
-    # See if you can linearize this problem
-    phi0 = np.arctan2(np.imag(spec)[:, -1], np.real(spec)[:, -1])
+    # Calculate 3 points of cost function which should be a smooth continuous sine wave
+    phis = np.array([0, np.pi / 2, np.pi]) / 2
+    scanlength = spec.shape[1]
+    fit_sets = spec[:, int(scanlength / 8):]
+    costs = get_imag_norms_squared(phis, fit_sets)
 
-    for i, (scan, phi0i) in enumerate(zip(spec, phi0)):
+    # Calculate sine function fitting 3 points
+    offset = (costs[:, 0] + costs[:, 2]) / 2
+    phase_shift = np.arctan2(costs[:, 0] - offset, costs[:, 1] - offset)
 
-        # Use last 7/8ths of data to fit phase
-        fit_set = scan[int(round(len(scan) / 8)):]
+    # Calculate phi by calculating `b` in d/dx a*sin(2*x+b) + c == 0
+    # x = (arccos(0) - b ) / 2 == (pi/2 - b) / 2 or (3pi/4 - b) / 2
+    possible_phis = np.array([(np.pi / 2 - phase_shift) / 2, (3*np.pi/2 - phase_shift) / 2]).T
+    possible_phi_costs = np.imag(fit_sets[:, None, :] * np.exp(1j * possible_phis)[:, :, None])
+    possible_phi_costs = (possible_phi_costs * possible_phi_costs).sum(axis=-1)
+    phimins = possible_phis[np.arange(len(possible_phi_costs)), np.argmin(possible_phi_costs, axis=1)]
 
-        # Find Phi that minimizes norm of imaginary data
-        phiopt = minimize(get_imag_norm_squared, phi0i, args=(fit_set,))
-        phi = phiopt.x
-        scani = scan * np.exp(1j * phi)
+    specn = spec * np.exp(1j * phimins)[:, None]
+    phimins[specn.sum(axis=1) < 0] += np.pi
+    phimins = phimins % (2 * np.pi)
 
-        # Test for 180 degree inversion of real data
-        if np.real(scani).sum() < 0:
-            phi = phi + np.pi
+    spec = spec * np.exp(1j * phimins)[:, None]
 
-        spec[i] = scan * np.exp(1j * phi)
+
     return spec
