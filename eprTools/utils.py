@@ -1,7 +1,6 @@
 import numbers
 import warnings
 from collections.abc import Sized
-
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.special import fresnel
@@ -27,7 +26,6 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     :return: numpy ndarray
         DEER Kernel matrix
     """
-
 
     if 'size' in kwargs:
         size = kwargs['size']
@@ -149,6 +147,7 @@ def reg_range(K, L, noiselvl=0., logres=0.1):
 
     return alphas
 
+
 def reg_operator(t, kind='L2'):
     loffset, uoffset = (0, None) if kind[-1] == '+' else (1, -1)
 
@@ -161,8 +160,8 @@ def reg_operator(t, kind='L2'):
 
     return L[loffset:uoffset]
 
+
 def gsvd(A, B):
-#===============================================================================
     m, p = A.shape
     n = B.shape[0]
 
@@ -199,7 +198,6 @@ def gsvd(A, B):
 
 
 def csd(Q1, Q2):
-    # ===============================================================================
     """
     Cosine-Sine Decomposition
     U,V,Z,C,S = csd(Q1,Q2)
@@ -321,18 +319,15 @@ def csd(Q1, Q2):
     return U, V, Z, C, S
 
 def diagf(X):
-#===============================================================================
     """
     Diagonal force
     X = diagf(X) zeros all the elements off the main diagonal of X.
     """
     X = np.triu(np.tril(X))
     return X
-#===============================================================================
 
 
 def diagp(Y,X,k):
-#===============================================================================
     """
     DIAGP  Diagonal positive.
     Y,X = diagp(Y,X,k) scales the columns of Y and the rows of X by
@@ -454,12 +449,6 @@ def hccm(J, *args):
     C = np.linalg.pinv(J.T @ J) @ J.T @ V @ J @ np.linalg.pinv(J.T @ J)
     return C
 
-
-def get_imag_norm_squared(phi, x):
-    spec_imag = np.imag(x * np.exp(1j * phi))
-    return spec_imag @ spec_imag
-
-
 def get_imag_norms_squared(phi, x):
     spec_imag = np.imag(x[:, None] * np.exp(1j * phi)[None, :, None])
 
@@ -488,3 +477,37 @@ def multi_phase(spec):
     spec = spec * np.exp(1j * opt_phase)[:, None]
 
     return spec
+
+def fit_zero_time(raw_time, raw_real, return_params=False):
+    """
+    Obtain the zero time and amplitude by fitting the first part of the trace to a 5th order polynomial
+
+    :param raw_time: np.ndarray
+        The raw experimental time points
+    :param raw_real:
+        The raw real component of the experimental  data
+
+    :return fit_time, normal_V:
+        the time and amplitude adjusted time and echo data
+    """
+
+    # Get approximate location of zero time
+    idxmax = np.argmax(raw_real)
+    idxmax = np.maximum(idxmax, 10)
+
+    # Fit data surrounding approximate zero-time to 5th order polynomial
+    fit = np.polyfit(raw_time[:2 * idxmax], raw_real[: 2 * idxmax], 7)
+
+    # Interpolate to find t0
+    dense_time = np.linspace(raw_time[0], raw_time[2 * idxmax], 256)
+    dense_V = np.polyval(fit, dense_time)
+    t0 = dense_time[np.argmax(dense_V)]
+    A0 = np.max(dense_V)
+
+    if return_params:
+        return A0, t0
+
+    else:
+        fit_time = raw_time - t0
+        normal_V = raw_real / A0
+        return fit_time, normal_V

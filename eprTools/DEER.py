@@ -6,15 +6,21 @@ from scipy.interpolate import interp1d
 from scipy.optimize import minimize, fminbound, least_squares
 from scipy.optimize._numdiff import approx_derivative
 import matplotlib.pyplot as plt
-from eprTools.utils import homogeneous_nd, read_param_file, generate_kernel, reg_range
-from eprTools.utils import reg_operator, hccm, get_imag_norm_squared, multi_phase
 from eprTools.nnls_funcs import NNLS_FUNCS
 from eprTools.selection_methods import SELECTION_METHODS
+from eprTools.utils import fit_zero_time
 from .SVP import SVP
 
 
 class DEERSpec:
     def __init__(self, time, spec, **kwargs):
+
+        # Raw Data Untouched
+        self.raw_time = time.copy()
+        self.raw_spec = spec.copy()
+        self.raw_real = spec.real.copy()
+        self.raw_imag = spec.imag.copy()
+
         # Working values
         self.time = time
         self.spec = spec / max(spec)
@@ -29,7 +35,7 @@ class DEERSpec:
         self.user_phi = False
         self.do_phase = kwargs.get('do_phase', True)
 
-        self.zt = None
+        self.t0 = None
         self.user_zt = False
         self.do_zero_time = kwargs.get('do_zero_time', True)
 
@@ -49,18 +55,12 @@ class DEERSpec:
         # Kernel parameters
         self.K = None
         self.r = kwargs.get('r', (15, 80))
-        self.L = reg_operator(self.r, type='L2')
+        self.L = reg_operator(self.r, kind='L2+')
         self.selection_method = kwargs.get('L_criteria', 'gcv')
 
         # Default background correction parameters
         self.bg_model = homogeneous_nd
         self.background = None
-
-        # Raw Data Untouched
-        self.raw_time = time
-        self.raw_spec = spec
-        self.raw_real = spec.real
-        self.raw_imag = spec.imag
 
         self._update()
 
@@ -117,7 +117,6 @@ class DEERSpec:
             # Roll with the mean for now.
             # TODO: Implement usage of individual scans in the future.
             spec = spec.mean(axis=0)
-
 
         # Construct DEERSpec object
         return cls(time, spec, r=r, do_phase=do_phase, **kwargs)
@@ -250,7 +249,7 @@ class DEERSpec:
     def set_trim(self, trim):
         self.trim_length = trim
         self.user_trim = True
-        self.zt = None
+        self.t0 = None
         self._update()
 
     def trim(self):
@@ -296,47 +295,19 @@ class DEERSpec:
 
     def set_zero_time(self, zero_time):
         self.user_zt = True
-        self.zt = zero_time
-        self.do_zero_time=True
+        self.t0 = zero_time
+        self.do_zero_time = True
         self._update()
 
     def zero_time(self):
         """
         Sets t=0 where 0th moment of a sliding window is closest to 0
         """
-        res = 10
-        time = np.linspace(self.time.min(), self.time.max(), (len(self.time) - 1) * res + 1)
-        real = interp1d(self.time, self.real, kind='cubic')(time)
-        real /= real.max()
+        self.A0, self.t0 = fit_zero_time(self.raw_time, self.raw_real, return_params=True)
 
-        def zero_moment(data, t):
-            mid_idx = int((len(t) - 1) / 2)
-            return np.abs(np.sum(data * (t - t[mid_idx])))
-
-        if not self.zt:
-            # make zero_moment of all windows tx(spec_max_idx)/2 and find minimum
-            spec_max_idx = real.argmax()
-            half_spec_max_idx = int(spec_max_idx / 2)
-            low_moment = np.inf
-
-            # search near spec_max_idx for min(abs(int(frame)))
-            corr_idx = 0
-            for i in range(spec_max_idx - half_spec_max_idx, spec_max_idx + half_spec_max_idx):
-                lFrame = i - half_spec_max_idx
-                uFrame = i + half_spec_max_idx + 1
-                test_moment = zero_moment(real[lFrame:uFrame], time[lFrame:uFrame])
-
-                if test_moment < low_moment:
-                    low_moment = test_moment
-                    corr_idx = lFrame
-
-            self.zt = time[corr_idx]
-
-        self.time -= self.zt
-
-        # Normalize values
-        zero_val = self.spec[np.argmin(np.abs(self.time))]
-        self.spec /= np.maximum(abs(zero_val.real), abs(zero_val.imag))
+        # Correct t0 and A0
+        self.time = self.raw_time - self.t0
+        self.spec = self.raw_spec / self.A0
         self.real = self.spec.real
         self.imag = self.spec.imag
 

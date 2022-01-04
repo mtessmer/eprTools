@@ -173,11 +173,11 @@ class CWSpec:
     def __mul__(self, a):
         return CW_spec(self.field, a * self.spec)
 
-
     @property
     def abs_first_moment(self):
         H_hat = np.trapz(self.absorbance_spectrum * self.field, self.field)
         return np.trapz(np.abs(self.field - H_hat) * self.absorbance_spectrum, self.field)
+
     @property
     def second_moment(self):
         H_hat = np.trapz(self.absorbance_spectrum * self.field, self.field)
