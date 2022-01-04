@@ -469,26 +469,22 @@ def get_imag_norms_squared(phi, x):
 def multi_phase(spec):
     # Calculate 3 points of cost function which should be a smooth continuous sine wave
     phis = np.array([0, np.pi / 2, np.pi]) / 2
-    scanlength = spec.shape[1]
-    fit_sets = spec[:, int(scanlength / 8):]
-    costs = get_imag_norms_squared(phis, fit_sets)
+    costs = get_imag_norms_squared(phis, spec)
 
     # Calculate sine function fitting 3 points
     offset = (costs[:, 0] + costs[:, 2]) / 2
     phase_shift = np.arctan2(costs[:, 0] - offset, costs[:, 1] - offset)
 
-    # Calculate phi by calculating `b` in d/dx a*sin(2*x+b) + c == 0
-    # x = (arccos(0) - b ) / 2 == (pi/2 - b) / 2 or (3pi/4 - b) / 2
-    possible_phis = np.array([(np.pi / 2 - phase_shift) / 2, (3*np.pi/2 - phase_shift) / 2]).T
-    possible_phi_costs = np.imag(fit_sets[:, None, :] * np.exp(1j * possible_phis)[:, :, None])
-    possible_phi_costs = (possible_phi_costs * possible_phi_costs).sum(axis=-1)
-    phimins = possible_phis[np.arange(len(possible_phi_costs)), np.argmin(possible_phi_costs, axis=1)]
+    # Calculate phi by calculating the phase when the derivative of the sine function is 0 and using the second
+    # derivative to ensure it is a minima and not a maxima
+    possible_phis = np.array([(np.pi / 2 - phase_shift) / 2, (3 * np.pi / 2 - phase_shift) / 2]).T
+    second_deriv = -np.sin(2 * possible_phis + phase_shift[:, None])
+    opt_phase = possible_phis[second_deriv > 0]
 
-    specn = spec * np.exp(1j * phimins)[:, None]
-    phimins[specn.sum(axis=1) < 0] += np.pi
-    phimins = phimins % (2 * np.pi)
+    # Check to ensure the real component is positive
+    temp_spec = spec * np.exp(1j * opt_phase)[:, None]
+    opt_phase[temp_spec.sum(axis=1) < 0] += np.pi
 
-    spec = spec * np.exp(1j * phimins)[:, None]
-
+    spec = spec * np.exp(1j * opt_phase)[:, None]
 
     return spec
