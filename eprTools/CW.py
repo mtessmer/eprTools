@@ -207,7 +207,13 @@ def load_csv(file, file_name):
     else:
         spec = np.genfromtxt(file)
 
-    field = guess_field(spec)
+    if len(spec.shape) > 1:
+        if spec.shape[0] == 2:
+            field, spec = spec
+        else:
+            field, spec = spec.T
+    else:
+        field = guess_field(spec)
 
     if len(field) == 2048:
         field = field[::2]
