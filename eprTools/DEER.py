@@ -1,15 +1,16 @@
 from copy import deepcopy
-import numbers, pickle
+import numbers, pickle, inspect
 from collections import Sized
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize, fminbound, least_squares
 from scipy.optimize._numdiff import approx_derivative
 import matplotlib.pyplot as plt
-from eprTools.nnls_funcs import NNLS_FUNCS
-from eprTools.selection_methods import SELECTION_METHODS
-from eprTools.utils import fit_zero_time
-from .SVP import SVP
+from .nnls_funcs import NNLS_FUNCS
+from .selection_methods import SELECTION_METHODS
+from .utils import *
+from .fg_models import DeerModel
+from .bg_models import HomogeneousND
 
 
 class DEERSpec:
@@ -24,8 +25,6 @@ class DEERSpec:
         # Working values
         self.time = time
         self.spec = spec / max(spec)
-        self.real = self.spec.real
-        self.imag = self.spec.imag
 
         # Default phase and trimming parameters
         self.trim_length = None
@@ -46,21 +45,28 @@ class DEERSpec:
         self.P = kwargs.get('P', None)
         self.residuals = np.inf
 
-        # L-curve misc
-        self.params = [0, 0]
-        self.alpha_idx = None
-        self.rho = None
-        self.eta = None
+        # Model
+        self._r = kwargs.get('r', (15, 80))
 
-        # Kernel parameters
-        self.K = None
-        self.r = kwargs.get('r', (15, 80))
+        self.bg_model = kwargs.get('bg_model', HomogeneousND(self.time))
+        if inspect.isclass(self.bg_model):
+            self.bg_model = self.bg_model(self.time)
+
+
+        self.model = kwargs.get('fg_model', DeerModel(self.r, self.time, self.bg_model))
+        if inspect.isclass(self.bg_model):
+            self.bg_model = self.bg_model(self.r, self.time, self.bg_model)
+
+        self.params = self.model.default_params
+        self.background = None
+
+        # Regularization
         self.L = reg_operator(self.r, kind='L2+')
         self.selection_method = kwargs.get('L_criteria', 'gcv')
 
-        # Default background correction parameters
-        self.bg_model = homogeneous_nd
-        self.background = None
+        self.alpha_idx = None
+        self.rho = None
+        self.eta = None
 
         self._update()
 
@@ -110,7 +116,7 @@ class DEERSpec:
                 spec = spec[mask]   # All scans that are 0
                 spec = spec[:-1]    # Last scan that wasn't all 0 probably was cut short
 
-            spec = multi_phase(spec)
+            spec = opt_phase(spec)
 
             do_phase = False
 
@@ -156,6 +162,9 @@ class DEERSpec:
             Probability density of the distribution corresponding to the distance coordinate array
         :return:
         """
+        if len(r) != len(P):
+            raise ValueError('r and P must have the same number of points')
+
         K, r, time = generate_kernel(r, time, size=len(P))
 
         spec = K.dot(P)
@@ -163,6 +172,14 @@ class DEERSpec:
 
         return cls(time, spec, background_kind='3D', background_k=0,
                    r=r, do_phase=False, do_zero_time=False, P=P)
+
+    @property
+    def real(self):
+        return self.spec.real
+
+    @property
+    def imag(self):
+        return self.spec.imag
 
     @property
     def r(self):
@@ -234,17 +251,19 @@ class DEERSpec:
             pickle.dump(self, f)
 
     def _update(self):
-        """
-        Update all self variables except fit. internal use only.
-        """
-        if self.trim_length is not None:
-            self.trim()
+        """Update all self variables except fit. internal use only."""
+
+        if self.do_zero_time:
+            self.zero_time()
 
         if self.do_phase:
             self.phase()
 
-        if self.do_zero_time:
-            self.zero_time()
+        if self.trim_length is not None:
+            self.trim()
+
+        self.model.t = self.time
+
 
     def set_trim(self, trim):
         self.trim_length = trim
@@ -253,9 +272,7 @@ class DEERSpec:
         self._update()
 
     def trim(self):
-        """
-        Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts.
-        """
+        """Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts."""
         mask = self.raw_time < self.trim_length
         self.time = self.raw_time[mask]
         self.spec = self.raw_spec[mask]
@@ -266,32 +283,18 @@ class DEERSpec:
 
         self.phi = phi
         self.user_phi = True
+        self.do_phase = True
         self._update()
 
     def phase(self):
-        """
-        set phase to maximize signal in real component and minimize signal in imaginary component
-        """
+        """set phase to maximize signal in real component and minimize signal in imaginary component"""
         if self.phi is None:
-            # Initial guess for phase shift
-            phi0 = np.arctan2(self.imag[-1], self.real[-1])
-
-            # Use last 7/8ths of data to fit phase
-            fit_set = self.spec[int(round(len(self.spec) / 8)):]
-
             # Find Phi that minimizes norm of imaginary data
-            phi = minimize(get_imag_norm_squared, phi0, (fit_set,))
-            phi = phi.x
-            spec = self.spec * np.exp(1j * phi)
+            self.spec, self.phi = opt_phase(self.spec, return_params=True)
 
-            # Test for 180 degree inversion of real data
-            if np.real(spec).sum() < 0:
-                phi = phi + np.pi
-
-            self.phi = phi
-
-        # Adjust phase
-        self.spec = self.spec * np.exp(1j * self.phi)
+        else:
+            # Use existing phi
+            self.spec = self.spec * np.exp(1j * self.phi)
 
     def set_zero_time(self, zero_time):
         self.user_zt = True
@@ -308,18 +311,6 @@ class DEERSpec:
         # Correct t0 and A0
         self.time = self.raw_time - self.t0
         self.spec = self.raw_spec / self.A0
-        self.real = self.spec.real
-        self.imag = self.spec.imag
-
-    def get_kernel(self, params):
-        K, r, t = generate_kernel(self.r, self.time)
-
-        # Add background to kernel
-        lam = params[0]
-        background = self.bg_model(self.time, *params[1:])
-
-        K = (1 - lam + lam * K) * background[:, None]
-        return K
 
     def get_fit(self):
         self.score = np.inf
@@ -331,9 +322,9 @@ class DEERSpec:
         K, r, t = generate_kernel(self.r, self.time)
         # Add background to kernel
         self.lam = params[0]
-        self.background = self.bg_model(self.time, *params[1:])
+        self.background = self.bg_model(params[1:])
 
-        self.K = (1 - self.lam + self.lam * K) * self.background[:, None]
+        self.K = self.model(params)
 
         diff = np.abs(self.params - params) / params
         if np.any(diff > 1e-3) or fit_alpha:
@@ -348,7 +339,6 @@ class DEERSpec:
         self.get_score(self.alpha)
         self.params = params.copy()
         return self.regres
-
 
     def get_score(self, alpha):
         """
@@ -407,8 +397,7 @@ class DEERSpec:
         :return:
         """
         # Get jacobian of linear and nonlinear fits
-        func = lambda params: self.get_kernel(params) @ self.P
-        Jac = np.reshape(approx_derivative(func, self.params), (-1, self.params.size))
+        Jac = np.reshape(approx_derivative(self.bg_model, self.params), (-1, self.params.size))
         Jac = np.concatenate([Jac, self.K], 1)
         Jreg = self.alpha * self.L
         Jreg = np.concatenate((np.zeros((self.L.shape[0], len(self.params))), Jreg), 1)

@@ -1,11 +1,13 @@
 import pytest, pickle
+from glob import glob
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, cauchy
 import matplotlib.pyplot as plt
-from eprTools import utils, DEERSpec, CWSpec
 import cvxopt as cvo
 from time import time
-import deerlab as dl
+from eprTools import CWSpec, DEERSpec, utils
+from eprTools.nnls_funcs import NNLS_FUNCS
+
 # Generate parameters and load test_data for tests
 r = np.linspace(15, 100, 2 ** 10)
 t = np.linspace(-1000, 4500, 2 ** 10)
@@ -16,101 +18,73 @@ kws = [{}, {'r': 80, 'time': 2500},
        {'time': t, 'size': 100}]
 
 ans_list = []
-with np.load('test_data/gen_kern.npz') as f:
-    for K in f.keys():
-        ans_list.append(f[K])
+with np.load('test_data/gen_kern.npz') as fo:
+    for K in fo.keys():
+        ans_list.append(fo[K])
 
 test_data = zip(kws, ans_list)
+DTAFiles = glob('test_data/DEER_Data/*.DTA')
 
 class TestDEER:
 
     def test_from_file(self):
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
+        spec_ans = np.load('test_data/Example_DEER.npy')
+        np.testing.assert_almost_equal(spc.spec, spec_ans)
 
-        with open('test_data/from_file.pkl', 'rb') as f:
-            spc_true = pickle.load(f)
-
-        assert spc_true == spc
+    def test_from_file_2D(self):
+        spc = DEERSpec.from_file('test_data/Example_DEER_2D.DTA')
+        spec_ans = np.load('test_data/Example_DEER_2D.npy')
+        np.testing.assert_almost_equal(spc.spec, spec_ans)
 
     def test_default(self):
-        r = np.linspace(15, 100, 256)
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
-        spc.set_zero_time(-75)
-        t1 = time()
-        #spc.get_fit()
-        print('mht_fit_time: ', time() - t1)
-
-        t1 = time()
-        f = dl.fitsignal(spc.real, spc.time, spc.r)
-        print('dl_fit_time: ', time() - t1)
-        #
-        # fig, (ax1, ax2) = plt.subplots(2)
-        # ax1.plot(spc.time, spc.real)
-        # ax1.plot(spc.time, spc.fit)
-        # ax1.plot(spc.time, spc.background - spc.lam)
-        # ax1.plot(spc.time, f.V)
-        # print(dir(f))
-        # ax1.plot(spc.time, f.B - f.bgparam)
-        # ax2.plot(spc.r, spc.P)
-        # ax2.plot(spc.r, f.P)
-        # plt.show()
+        r = np.linspace(15, 80, 256)
+        spc = DEERSpec.from_file('test_data/Example_DEER_2D.DTA', r=r)
+        spc.get_fit()
 
         with open('test_data/default.pkl', 'rb') as f:
             spc_true = pickle.load(f)
 
         np.testing.assert_almost_equal(spc.fit, spc_true.fit)
         np.testing.assert_almost_equal(spc.P, spc_true.P)
-        np.testing.assert_almost_equal(spc.K, spc_true.K)
+        np.testing.assert_almost_equal(spc.std, spc_true.std)
 
-    r = np.linspace(15, 100, 256)
-    t = np.linspace(-500, 3500, 256)
-    K, r, t = utils.generate_kernel(r, t)
-    P = norm(30, 1).pdf(r) + 20 * norm(105, 5).pdf(r)
-    P /= P.sum()
-    S = K @ P
-    lam = 0.15
-    B = np.exp(-1e-5 * np.abs(t))
-    V = (1 - lam + lam * S) * B + np.random.normal(0, 0.001, 256)
+    def test_from_array(self):
+        t = np.linspace(-100, 5000, 256)
+        r = np.linspace(15, 80, 256)
+        P = norm(35, 0.2).pdf(r)
 
-    def test_uncertainty(self):
-        r = np.linspace(15, 70, 256)
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
-        spc.set_zero_time(-75)
-        spc.get_fit()
-        fig, ax = plt.subplots(2)
-        ax[0].plot(spc.time, spc.real)
-        ax[0].plot(spc.time, spc.fit)
-        ax[1].fill_between(spc.r, np.maximum(spc.P - spc.std[2:], 0), spc.P + spc.std[2:], alpha=0.5)
-        ax[1].plot(spc.r, spc.P)
-        plt.show()
+        K, *_ = utils.generate_kernel(r, t)
+        Kbg = (1 - 0.5 + 0.5 * K) * np.exp(-1e-3 * t)[:, None]
+        V = Kbg @ P + np.random.normal(0, 0.02)
 
-    def test_from_array(self, V):
         spc = DEERSpec.from_array(t, V, r)
-        spc.save("test_data/from_array.pkl")
-        with open("test_data/from_array.pkl", 'rb') as f:
-            spc_true = pickle.load(f)
 
-    @pytest.mark.parametrize('method, ans', zip(['cvxnnls', 'spnnls', 'qpnnls'], [0, 0, 0]))
+        np.testing.assert_almost_equal(spc.real, V /V.max())
+
+    @pytest.mark.parametrize('method, ans', zip(['cvxnnls', 'spnnls'], [0, 0]))
     def test_nnls(self, method, ans):
         t1 = time()
         r = np.linspace(15, 100, 256)
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
         spc.set_trim(3000)
-        spc.set_zero_time(-75)
         spc.nnls = method
         spc.get_fit()
         print(method, ': ', time() - t1)
 
-        fig, (ax1, ax2) = plt.subplots(2)
-        ax1.plot(spc.time, spc.real, spc.time, spc.fit)
-        ax2.plot(spc.r, spc.P)
-        plt.show()
-
     def test_extra_reg(self):
+        t = np.linspace(-100, 5000, 256)
+        r = np.linspace(15, 80, 256)
+        K, _, _ = utils.generate_kernel(r, t)
+        Kexp = (1 - 0.5 + 0.5 * K) * np.exp(-0.05 * np.abs(t))[:, None]
+        P = norm(35, 2).pdf(r) + 0.5 * norm(90, 8).pdf(r)
+        P /= np.trapz(P, r)
+        V = K @ P
+
         spc = DEERSpec.from_array(t, V, r)
 
         def extra_reg_nnls(K, L, V, alpha, abstol=1e-9, reltol=1e-8):
-            beta = 10
+            beta = 50
             M = np.zeros(len(r))
             M[r > 60] = 1
             M = np.diag(M)
@@ -147,11 +121,11 @@ class TestDEER:
             np.testing.assert_almost_equal(spc.K, f['K'])
 
     def test_from_distribution(self):
-        r = np.linspace(1, 100, 256)
-        P = norm(45, 3).pdf(r)
+        rr = np.linspace(1, 100, 256)
+        P = norm(45, 3).pdf(rr)
         P /= P.sum()
-        time = 3500
-        spc = DEERSpec.from_distribution(r, P, time)
+        tt = -0.05 * 3500, 3500
+        spc = DEERSpec.from_distribution(rr, P, tt)
 
         with open('test_data/from_distribution.pkl', 'rb') as f:
             spc_true = pickle.load(f)
@@ -162,42 +136,92 @@ class TestDEER:
     @pytest.mark.parametrize('method', ['spnnls', 'cvxnnls'])
     def test_fit_method(self, method):
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
-        spc.get_fit(fit_method=method)
+        spc.nnls = method
+        assert spc.nnls == NNLS_FUNCS[method]
 
-        assert spc.fit_method == method
-
-        with open('test_data/fit_method.pkl', 'rb') as f:
-            spc_true = pickle.load(f)
-
-        assert spc == spc_true
-
-    phi = np.linspace(0, 180, 18)
-    V_ts=[]
-    with np.load('test_data/set_phase.npz') as f:
-        for i in range(len(f.files)):
-            V_ts.append(f[f'arr_{i}'])
-
-    @pytest.mark.parametrize('phase, expected', zip(phi, V_ts))
-    def test_set_phase(self, phase, expected):
-        true_spec = expected
+    @pytest.mark.parametrize('phi0', np.linspace(0, 170, 18))
+    def test_set_phase(self, phi0):
         spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
-        spc.set_phase(phase)
-        print(phase)
 
-        np.testing.assert_almost_equal(true_spec, spc.spec)
+        spc.set_phase(phi0)
+        phase0 = spc.spec.copy()
+
+        spc.set_phase(phi0 + 90)
+        phase90 = spc.spec.copy()
+
+        np.testing.assert_almost_equal(phase0.real, phase90.imag, decimal=3)
 
 
 class TestCWSpec:
 
+    def test_from_file_dta(self):
+        spc = CWSpec.from_file('test_data/Example_CW.DTA', preprocess=True)
+
+        with np.load('test_data/from_file.npz') as f:
+            field_ans, spec_ans = f['field'], f['spec']
+
+        np.testing.assert_almost_equal(spc.field, field_ans)
+        np.testing.assert_almost_equal(spc.spec, spec_ans)
+
+    def test_from_file_spc(self):
+        spc = CWSpec.from_file('test_data/Example_CW.spc', preprocess=True)
+
+        with np.load('test_data/from_file_spc.npz') as f:
+            field_ans, spec_ans = f['field'], f['spec']
+
+        plt.show()
+
+        np.testing.assert_almost_equal(spc.field, field_ans)
+        np.testing.assert_almost_equal(spc.spec, spec_ans)
+
+    @pytest.mark.parametrize('ext', ['txt', 'dat', 'csv'])
+    def test_from_file_ext(self, ext):
+        spc = CWSpec.from_file(f'test_data/Example_CW.{ext}', preprocess=True)
+
+        with np.load('test_data/from_file.npz') as f:
+            field_ans, spec_ans = f['field'], f['spec']
+
+        np.testing.assert_almost_equal(spc.field, field_ans)
+        np.testing.assert_almost_equal(spc.spec, spec_ans)
+
+    def test_from_array(self):
+        field = np.linspace(3420, 3520, 256)
+        abs_spec = cauchy(3450, 1).pdf(field) + cauchy(3470, 1).pdf(field) + cauchy(3490, 1).pdf(field)
+        spec = np.gradient(abs_spec, field)
+
+        spc = CWSpec(field, spec + 0.1, preprocess=True)
+
+        np.testing.assert_almost_equal(spc.field, field)
+        np.testing.assert_almost_equal(spc.spec, spec / np.trapz(abs_spec - min(abs_spec), field))
+
     def test_abs_first_moment(self):
-        spc = CWSpec.from_file('test_data/170216_01_A28R5_25uM.DTA', preprocess=True)
-        print(spc.abs_first_moment)
+        spc = CWSpec.from_file('test_data/Example_CW.DTA', preprocess=True)
+        assert spc.abs_first_moment == 12.285957467546188
 
     def test_second_moment(self):
-        spc = CWSpec.from_file('test_data/170216_01_A28R5_25uM.DTA', preprocess=True)
-        print(spc.second_moment)
+        spc = CWSpec.from_file('test_data/Example_CW.DTA', preprocess=True)
+        assert spc.second_moment == 233.43611366615266
+
 
 class TestUtils:
+
+    def test_opt_phase(self):
+        Vans = np.arange(100, dtype=complex) + np.random.rand(100)
+        Vexp = Vans*np.exp(-1j * np.pi / 4)
+        Vfit, phi_opt = utils.opt_phase(Vexp, return_params=True)
+        np.testing.assert_almost_equal(Vfit, Vans)
+        np.testing.assert_almost_equal(phi_opt, np.pi/4)
+
+    def test_opt_phase_2d(self):
+        Vans = np.tile(np.arange(100, dtype=complex), (9, 1)) + np.random.rand(9, 100)
+        phi_ans = np.linspace(0, 2*np.pi, 10)[:-1]
+
+        Vexp = Vans*np.exp(-1j * phi_ans)[:, None]
+        Vfit, phi_fit = utils.opt_phase(Vexp, return_params=True)
+
+        phi_fit -= 2*np.pi * np.floor(phi_fit / (2 * np.pi) )
+        np.testing.assert_almost_equal(Vfit, Vans)
+        np.testing.assert_almost_equal(phi_fit, phi_ans)
 
     @pytest.mark.parametrize('kwargs, expected', test_data)
     def test_generate_kernel(self, kwargs, expected):
@@ -209,7 +233,17 @@ class TestUtils:
         tnm = np.linspace(-1, 4.5, 2**10)
 
         Knm, _, _ = utils.generate_kernel(rnm, tnm)
-        K, _, _ = utils.generate_kernel(r, t)
+        Kan, _, _ = utils.generate_kernel(r, t)
 
-        np.testing.assert_almost_equal(K, Knm)
+        np.testing.assert_almost_equal(Kan, Knm)
 
+    @pytest.mark.parametrize('dta_file', DTAFiles)
+    def test_fit_zero_time(self, dta_file):
+        spc = DEERSpec.from_file(dta_file, r=r)
+        fit_time, fit_spec = utils.fit_zero_time(spc.raw_time, spc.raw_real)
+
+        # plt.plot(fit_time, fit_spec.real)
+        # plt.plot(fit_time, fit_spec.imag)
+        # plt.axvline(0)
+        # plt.axhline(1)
+        # plt.show()

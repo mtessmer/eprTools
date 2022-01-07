@@ -26,19 +26,15 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     :return: numpy ndarray
         DEER Kernel matrix
     """
-
-    if 'size' in kwargs:
-        size = kwargs['size']
-    else:
-        size = 256
+    size = kwargs.get('size', 256)
 
     # Interpret distance domain
     if isinstance(r, numbers.Number):
         r = np.linspace(1, r, size)
+
     elif isinstance(r, Sized):
         if len(r) == 2:
             r = np.linspace(r[0], r[1], size)
-
         else:
             r = np.asarray(r)
 
@@ -48,10 +44,10 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     # Interpret time domain
     if isinstance(time, numbers.Number):
         time = np.linspace(0, time, size)
-    elif isinstance(r, Sized):
-        if len(time) == 2:
-            r = np.linspace(time[0], time[1], size)
 
+    elif isinstance(time, Sized):
+        if len(time) == 2:
+            time = np.linspace(time[0], time[1], size)
         else:
             time = np.asarray(time)
 
@@ -71,25 +67,6 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
     K[time == 0] = 1.
 
     return K, r, time
-
-
-def homogeneous_nd(t, k, d=3):
-    """
-    Homogeneous n-dimensional background function to be used for background fitting.
-    :param t: numpy ndarray
-        time axis
-
-    :param k: float
-        fit parameter
-
-    :param a: float
-        1 - modulation_depth
-
-    :param d: float
-        number of dimensions
-
-    """
-    return np.exp(-k * (np.abs(t) ** (d / 3)))
 
 
 def read_param_file(param_file):
@@ -455,7 +432,9 @@ def get_imag_norms_squared(phi, x):
     return (spec_imag * spec_imag).sum(-1)
 
 
-def multi_phase(spec):
+def opt_phase(spec, return_params=False):
+    spec = np.atleast_2d(spec)
+
     # Calculate 3 points of cost function which should be a smooth continuous sine wave
     phis = np.array([0, np.pi / 2, np.pi]) / 2
     costs = get_imag_norms_squared(phis, spec)
@@ -473,10 +452,12 @@ def multi_phase(spec):
     # Check to ensure the real component is positive
     temp_spec = spec * np.exp(1j * opt_phase)[:, None]
     opt_phase[temp_spec.sum(axis=1) < 0] += np.pi
-
     spec = spec * np.exp(1j * opt_phase)[:, None]
 
-    return spec
+    if return_params:
+        return np.squeeze(spec), np.squeeze(opt_phase)
+    else:
+        return np.squeeze(spec)
 
 def fit_zero_time(raw_time, raw_real, return_params=False):
     """
