@@ -151,6 +151,18 @@ class TestDEER:
 
         np.testing.assert_almost_equal(phase0.real, phase90.imag, decimal=3)
 
+    def test_ci(self):
+        spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
+        spc.set_trim(3000)
+        spc.get_fit()
+
+        fig, ax =plt.subplots(2)
+        ax[0].plot(spc.time, spc.real)
+        ax[0].plot(spc.time, spc.fit)
+        ax[1].plot(spc.r, spc.P)
+        ax[1].fill_between(spc.r, *spc.ci(50), alpha=0.5)
+        ax[1].fill_between(spc.r, *spc.ci(95), alpha=0.2)
+        plt.show()
 
 class TestCWSpec:
 

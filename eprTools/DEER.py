@@ -5,6 +5,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize, fminbound, least_squares
 from scipy.optimize._numdiff import approx_derivative
+from scipy.stats import norm
 import matplotlib.pyplot as plt
 from .nnls_funcs import NNLS_FUNCS
 from .selection_methods import SELECTION_METHODS
@@ -46,7 +47,7 @@ class DEERSpec:
         self.residuals = np.inf
 
         # Model
-        self._r = kwargs.get('r', (15, 80))
+        self._r = setup_r(kwargs.get('r', (15, 80)), kwargs.get('size', 256))
 
         self.bg_model = kwargs.get('bg_model', HomogeneousND(self.time))
         if inspect.isclass(self.bg_model):
@@ -273,9 +274,9 @@ class DEERSpec:
 
     def trim(self):
         """Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts."""
-        mask = self.raw_time < self.trim_length
-        self.time = self.raw_time[mask]
-        self.spec = self.raw_spec[mask]
+        mask = self.time < self.trim_length
+        self.time = self.time[mask]
+        self.spec = self.spec[mask]
 
     def set_phase(self, phi):
         if np.abs(phi) > 2 * np.pi:
@@ -414,4 +415,9 @@ class DEERSpec:
 
         self.params_std = std[:2]
 
-
+    def ci(self, percent):
+        alpha = 1 - percent / 100
+        p = 1 - alpha/2
+        lower_bounds = np.maximum(0, self.P - norm.ppf(p) * self.std)
+        upper_bounds = np.maximum(0, self.P + norm.ppf(p) * self.std)
+        return lower_bounds, upper_bounds

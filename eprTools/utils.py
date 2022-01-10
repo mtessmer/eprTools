@@ -27,19 +27,7 @@ def generate_kernel(r=(15, 80), time=3500, **kwargs):
         DEER Kernel matrix
     """
     size = kwargs.get('size', 256)
-
-    # Interpret distance domain
-    if isinstance(r, numbers.Number):
-        r = np.linspace(1, r, size)
-
-    elif isinstance(r, Sized):
-        if len(r) == 2:
-            r = np.linspace(r[0], r[1], size)
-        else:
-            r = np.asarray(r)
-
-    else:
-        raise ValueError("Unrecognized value for distance domain.")
+    r = setup_r(r, size=size)
 
     # Interpret time domain
     if isinstance(time, numbers.Number):
@@ -125,11 +113,11 @@ def reg_range(K, L, noiselvl=0., logres=0.1):
     return alphas
 
 
-def reg_operator(t, kind='L2'):
+def reg_operator(r, kind='L2'):
     loffset, uoffset = (0, None) if kind[-1] == '+' else (1, -1)
 
-    L = np.zeros((len(t), len(t)))
-    diag = np.arange(len(t))
+    L = np.zeros((len(r), len(r)))
+    diag = np.arange(len(r))
 
     L[diag[:-1], diag[1:]] = 1
     L[diag, diag] = - 2
@@ -227,7 +215,8 @@ def csd(Q1, Q2):
 
     S = V.T @ S
     r = min(k, m)
-    S[:, 0:r - 1] = diagf(S[:, 0:r - 1])
+    S[:r - 1, :r - 1] = np.diag(np.diag(S[:, 0:r - 1]))
+    S[r:, :r - 1] = 0
 
     if (m == 1 and p > 1):
         S[0, 0] = 0
@@ -248,7 +237,8 @@ def csd(Q1, Q2):
         Z[:, j] = Z[:, j] @ VT
         i = np.arange(k, q, 1)
         [Q, R] = qr(C[np.ix_(i, j)])
-        C[np.ix_(i, j)] = diagf(R)
+        C[np.ix_(i, j)] = np.triu(np.tril(R))
+
         U[:, i] = U[:, i] @ Q
 
     if m < p:
@@ -270,7 +260,7 @@ def csd(Q1, Q2):
         # elements of S(:,q+1:p) outside of S(i,j) should be negligible.
         Q, R = qr(S[np.ix_(i, j)])
         S[:, q + 1:p] = 0
-        S[np.ix_(i, j)] = diagf(R)
+        S[np.ix_(i, j)] = np.diag(np.diag(R))
         V[:, i] = V[:, i] @ Q
         if n > 1:
             i = np.concatenate((np.arange(q, q + p - m, 1), np.arange(0, q, 1), np.arange(q + p - m, n, 1)))
@@ -492,3 +482,20 @@ def fit_zero_time(raw_time, raw_real, return_params=False):
         fit_time = raw_time - t0
         normal_V = raw_real / A0
         return fit_time, normal_V
+
+def setup_r(r, size):
+
+    # Interpret distance domain
+    if isinstance(r, numbers.Number):
+        r = np.linspace(1, r, size)
+
+    elif isinstance(r, Sized):
+        if len(r) == 2:
+            r = np.linspace(r[0], r[1], size)
+        else:
+            r = np.asarray(r)
+
+    else:
+        raise ValueError("Unrecognized value for distance domain.")
+
+    return r
