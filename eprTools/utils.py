@@ -416,18 +416,18 @@ def hccm(J, *args):
     C = np.linalg.pinv(J.T @ J) @ J.T @ V @ J @ np.linalg.pinv(J.T @ J)
     return C
 
-def get_imag_norms_squared(phi, x):
-    spec_imag = np.imag(x[:, None] * np.exp(1j * phi)[None, :, None])
+def get_imag_norms_squared(phi, V):
+    V_imag = np.imag(V[:, None] * np.exp(1j * phi)[None, :, None])
 
-    return (spec_imag * spec_imag).sum(-1)
+    return (V_imag * V_imag).sum(-1)
 
 
-def opt_phase(spec, return_params=False):
-    spec = np.atleast_2d(spec)
+def opt_phase(V, return_params=False):
+    V = np.atleast_2d(V)
 
     # Calculate 3 points of cost function which should be a smooth continuous sine wave
     phis = np.array([0, np.pi / 2, np.pi]) / 2
-    costs = get_imag_norms_squared(phis, spec)
+    costs = get_imag_norms_squared(phis, V)
 
     # Calculate sine function fitting 3 points
     offset = (costs[:, 0] + costs[:, 2]) / 2
@@ -440,14 +440,14 @@ def opt_phase(spec, return_params=False):
     opt_phase = possible_phis[second_deriv > 0]
 
     # Check to ensure the real component is positive
-    temp_spec = spec * np.exp(1j * opt_phase)[:, None]
-    opt_phase[temp_spec.sum(axis=1) < 0] += np.pi
-    spec = spec * np.exp(1j * opt_phase)[:, None]
+    temp_V = V * np.exp(1j * opt_phase)[:, None]
+    opt_phase[temp_V.sum(axis=1) < 0] += np.pi
+    V = V * np.exp(1j * opt_phase)[:, None]
 
     if return_params:
-        return np.squeeze(spec), np.squeeze(opt_phase)
+        return np.squeeze(V), np.squeeze(opt_phase)
     else:
-        return np.squeeze(spec)
+        return np.squeeze(V)
 
 def fit_zero_time(raw_time, raw_real, return_params=False):
     """

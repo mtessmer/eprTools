@@ -30,10 +30,10 @@ plt.show()
 
 ```python
 import matplotlib.pyplot as plt
-from eprTools import DEERSpec
+from eprTools import DeerExp
 
 # import data
-spc = DEERSpec.from_file('Example_DEER.DTA')
+spc = DeerExp.from_file('Example_DEER.DTA')
 
 # set kernel parameters
 spc.set_kernel_r(rmin=15, rmax=60)
@@ -43,7 +43,7 @@ spc.set_kernel_shape(250)
 spc.get_fit()
 
 # plot form factor, background correction, fit and distance distribution
-fig, (ax1, ax2) = plt.subplots(1,2, figsize = [20, 10.5])
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
 ax1.plot(spc.time, spc.real)
 ax1.plot(spc.fit_time, spc.fit)
 ax1.plot(spc.time, spc.background)
@@ -55,7 +55,7 @@ rho, eta, alpha_idx = spc.get_L_curve()
 
 fig2, ax = plt.subplots()
 ax.scatter(rho, eta)
-ax.scatter(rho[alpha_idx], eta[alpha_idx], c = 'r', facecolor=None)
+ax.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
 plt.show()
 
 print(spc.alpha)

@@ -5,7 +5,7 @@ from scipy.stats import norm, cauchy
 import matplotlib.pyplot as plt
 import cvxopt as cvo
 from time import time
-from eprTools import CWSpec, DEERSpec, utils
+from eprTools import CWSpec, DeerExp, utils
 from eprTools.nnls_funcs import NNLS_FUNCS
 
 # Generate parameters and load test_data for tests
@@ -28,26 +28,28 @@ DTAFiles = glob('test_data/DEER_Data/*.DTA')
 class TestDEER:
 
     def test_from_file(self):
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
-        spec_ans = np.load('test_data/Example_DEER.npy')
-        np.testing.assert_almost_equal(spc.spec, spec_ans)
+        ex = DeerExp.from_file('test_data/Example_DEER.DTA')
+        ex_ans = np.load('test_data/Example_DEER.npy')
+        np.testing.assert_almost_equal(ex.V, ex_ans)
 
     def test_from_file_2D(self):
-        spc = DEERSpec.from_file('test_data/Example_DEER_2D.DTA')
-        spec_ans = np.load('test_data/Example_DEER_2D.npy')
-        np.testing.assert_almost_equal(spc.spec, spec_ans)
+        ex = DeerExp.from_file('test_data/Example_DEER_2D.DTA')
+        ex_ans = np.load('test_data/Example_DEER_2D.npy')
+        np.testing.assert_almost_equal(ex.V, ex_ans)
 
     def test_default(self):
         r = np.linspace(15, 80, 256)
-        spc = DEERSpec.from_file('test_data/Example_DEER_2D.DTA', r=r)
-        spc.get_fit()
+        ex = DeerExp.from_file('test_data/Example_DEER_2D.DTA', r=r)
+        ex.get_fit()
 
-        with open('test_data/default.pkl', 'rb') as f:
-            spc_true = pickle.load(f)
+        with np.load('test_data/default.npz', 'rb') as f:
+            true_fit = f['fit']
+            true_P = f['P']
+            true_std = f['std']
 
-        np.testing.assert_almost_equal(spc.fit, spc_true.fit)
-        np.testing.assert_almost_equal(spc.P, spc_true.P)
-        np.testing.assert_almost_equal(spc.std, spc_true.std)
+        np.testing.assert_almost_equal(ex.fit, true_fit)
+        np.testing.assert_almost_equal(ex.P, true_P)
+        np.testing.assert_almost_equal(ex.std, true_std)
 
     def test_from_array(self):
         t = np.linspace(-100, 5000, 256)
@@ -58,18 +60,18 @@ class TestDEER:
         Kbg = (1 - 0.5 + 0.5 * K) * np.exp(-1e-3 * t)[:, None]
         V = Kbg @ P + np.random.normal(0, 0.02)
 
-        spc = DEERSpec.from_array(t, V, r)
+        ex = DeerExp.from_array(t, V, r)
 
-        np.testing.assert_almost_equal(spc.real, V /V.max())
+        np.testing.assert_almost_equal(ex.real, V /V.max())
 
     @pytest.mark.parametrize('method, ans', zip(['cvxnnls', 'spnnls'], [0, 0]))
     def test_nnls(self, method, ans):
         t1 = time()
         r = np.linspace(15, 100, 256)
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA', r=r)
-        spc.set_trim(3000)
-        spc.nnls = method
-        spc.get_fit()
+        ex = DeerExp.from_file('test_data/Example_DEER.DTA', r=r)
+        ex.set_trim(3000)
+        ex.nnls = method
+        ex.get_fit()
         print(method, ': ', time() - t1)
 
     def test_extra_reg(self):
@@ -81,7 +83,7 @@ class TestDEER:
         P /= np.trapz(P, r)
         V = K @ P
 
-        spc = DEERSpec.from_array(t, V, r)
+        ex = DeerExp.from_array(t, V, r)
 
         def extra_reg_nnls(K, L, V, alpha, abstol=1e-9, reltol=1e-8):
             beta = 50
@@ -112,56 +114,58 @@ class TestDEER:
 
             return P
 
-        spc.nnls = extra_reg_nnls
-        spc.get_fit()
+        ex.nnls = extra_reg_nnls
+        ex.get_fit()
 
         with np.load('test_data/extra_reg.npz') as f:
-            np.testing.assert_almost_equal(spc.fit, f['fit'])
-            np.testing.assert_almost_equal(spc.P, f['P'])
-            np.testing.assert_almost_equal(spc.K, f['K'])
+            np.testing.assert_almost_equal(ex.fit, f['fit'])
+            np.testing.assert_almost_equal(ex.P, f['P'])
+            np.testing.assert_almost_equal(ex.K, f['K'])
 
     def test_from_distribution(self):
         rr = np.linspace(1, 100, 256)
         P = norm(45, 3).pdf(rr)
         P /= P.sum()
         tt = -0.05 * 3500, 3500
-        spc = DEERSpec.from_distribution(rr, P, tt)
+        ex = DeerExp.from_distribution(rr, P, tt)
 
-        with open('test_data/from_distribution.pkl', 'rb') as f:
-            spc_true = pickle.load(f)
+        with np.load('test_data/from_distribution.npz', 'rb') as f:
+            true_V = f['V']
+            true_P = f['P']
 
-        np.testing.assert_almost_equal(spc_true.spec, spc.spec)
-        np.testing.assert_almost_equal(P, spc.P)
+
+        np.testing.assert_almost_equal(ex.V, true_V)
+        np.testing.assert_almost_equal(ex.P, true_P)
 
     @pytest.mark.parametrize('method', ['spnnls', 'cvxnnls'])
     def test_fit_method(self, method):
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
-        spc.nnls = method
-        assert spc.nnls == NNLS_FUNCS[method]
+        ex = DeerExp.from_file('test_data/Example_DEER.DTA')
+        ex.nnls = method
+        assert ex.nnls == NNLS_FUNCS[method]
 
     @pytest.mark.parametrize('phi0', np.linspace(0, 170, 18))
     def test_set_phase(self, phi0):
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
+        ex = DeerExp.from_file('test_data/Example_DEER.DTA')
 
-        spc.set_phase(phi0)
-        phase0 = spc.spec.copy()
+        ex.set_phase(phi0)
+        phase0 = ex.V.copy()
 
-        spc.set_phase(phi0 + 90)
-        phase90 = spc.spec.copy()
+        ex.set_phase(phi0 + 90)
+        phase90 = ex.V.copy()
 
         np.testing.assert_almost_equal(phase0.real, phase90.imag, decimal=3)
 
     def test_ci(self):
-        spc = DEERSpec.from_file('test_data/Example_DEER.DTA')
-        spc.set_trim(3000)
-        spc.get_fit()
+        ex = DeerExp.from_file('test_data/Example_DEER.DTA')
+        ex.set_trim(3000)
+        ex.get_fit()
 
         fig, ax =plt.subplots(2)
-        ax[0].plot(spc.time, spc.real)
-        ax[0].plot(spc.time, spc.fit)
-        ax[1].plot(spc.r, spc.P)
-        ax[1].fill_between(spc.r, *spc.ci(50), alpha=0.5)
-        ax[1].fill_between(spc.r, *spc.ci(95), alpha=0.2)
+        ax[0].plot(ex.time, ex.real)
+        ax[0].plot(ex.time, ex.fit)
+        ax[1].plot(ex.r, ex.P)
+        ax[1].fill_between(ex.r, *ex.ci(50), alpha=0.5)
+        ax[1].fill_between(ex.r, *ex.ci(95), alpha=0.2)
         plt.show()
 
 class TestCWSpec:
@@ -251,8 +255,8 @@ class TestUtils:
 
     @pytest.mark.parametrize('dta_file', DTAFiles)
     def test_fit_zero_time(self, dta_file):
-        spc = DEERSpec.from_file(dta_file, r=r)
-        fit_time, fit_spec = utils.fit_zero_time(spc.raw_time, spc.raw_real)
+        ex = DeerExp.from_file(dta_file, r=r)
+        fit_time, fit_spec = utils.fit_zero_time(ex.raw_time, ex.raw_real)
 
         # plt.plot(fit_time, fit_spec.real)
         # plt.plot(fit_time, fit_spec.imag)

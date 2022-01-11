@@ -14,18 +14,18 @@ from .fg_models import DeerModel
 from .bg_models import HomogeneousND
 
 
-class DEERSpec:
-    def __init__(self, time, spec, **kwargs):
+class DeerExp:
+    def __init__(self, time, V, **kwargs):
 
         # Raw Data Untouched
         self.raw_time = time.copy()
-        self.raw_spec = spec.copy()
-        self.raw_real = spec.real.copy()
-        self.raw_imag = spec.imag.copy()
+        self.raw_V = V.copy()
+        self.raw_real = V.real.copy()
+        self.raw_imag = V.imag.copy()
 
         # Working values
         self.time = time
-        self.spec = spec / max(spec)
+        self.V = V / max(V)
 
         # Default phase and trimming parameters
         self.trim_length = None
@@ -176,11 +176,11 @@ class DEERSpec:
 
     @property
     def real(self):
-        return self.spec.real
+        return self.V.real
 
     @property
     def imag(self):
-        return self.spec.imag
+        return self.V.imag
 
     @property
     def r(self):
@@ -229,11 +229,11 @@ class DEERSpec:
             raise KeyError(f"{value} is not a recognized selection method or function")
 
     def __eq__(self, spc):
-        if not isinstance(spc, DEERSpec):
+        if not isinstance(spc, DeerExp):
             return False
         elif not np.allclose(spc.time, self.time):
             return False
-        elif not np.allclose(spc.spec, self.spec):
+        elif not np.allclose(spc.V, self.V):
             return False
         else:
             return True
@@ -276,7 +276,7 @@ class DEERSpec:
         """Removes last N points of the deer trace. Used to remove noise explosion and 2+1 artifacts."""
         mask = self.time < self.trim_length
         self.time = self.time[mask]
-        self.spec = self.spec[mask]
+        self.V = self.V[mask]
 
     def set_phase(self, phi):
         if np.abs(phi) > 2 * np.pi:
@@ -291,11 +291,11 @@ class DEERSpec:
         """set phase to maximize signal in real component and minimize signal in imaginary component"""
         if self.phi is None:
             # Find Phi that minimizes norm of imaginary data
-            self.spec, self.phi = opt_phase(self.spec, return_params=True)
+            self.V, self.phi = opt_phase(self.V, return_params=True)
 
         else:
             # Use existing phi
-            self.spec = self.spec * np.exp(1j * self.phi)
+            self.V = self.V * np.exp(1j * self.phi)
 
     def set_zero_time(self, zero_time):
         self.user_zt = True
@@ -311,7 +311,7 @@ class DEERSpec:
 
         # Correct t0 and A0
         self.time = self.raw_time - self.t0
-        self.spec = self.raw_spec / self.A0
+        self.V = self.raw_V / self.A0
 
     def get_fit(self):
         self.score = np.inf
@@ -397,13 +397,20 @@ class DEERSpec:
         """
         :return:
         """
-        # Get jacobian of linear and nonlinear fits
-        Jac = np.reshape(approx_derivative(self.bg_model, self.params), (-1, self.params.size))
-        Jac = np.concatenate([Jac, self.K], 1)
-        Jreg = self.alpha * self.L
-        Jreg = np.concatenate((np.zeros((self.L.shape[0], len(self.params))), Jreg), 1)
-        Jac = np.concatenate([Jac, Jreg])
+        def tres(params):
+            K = self.model(params)
+            res = K @ self.P - self.real
+            return np.concatenate([res, self.alpha * self.L @ self.P])
 
+        def ures(P):
+            res = self.K @ P - self.real
+            return res
+
+
+        # Get jacobian of linear and nonlinear fits
+        JacNonlin = np.reshape(approx_derivative(tres, self.params), (-1, self.params.size))
+        JacLin = np.concatenate([self.K, self.alpha * self.L])
+        Jac = np.concatenate([JacNonlin, JacLin], axis=1)
 
         resreg = self.alpha * self.L @ self.P
         res = np.concatenate([self.residuals, resreg])
