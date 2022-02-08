@@ -408,7 +408,7 @@ class DeerExp:
 
 
         # Get jacobian of linear and nonlinear fits
-        JacNonlin = np.reshape(approx_derivative(tres, self.params), (-1, self.params.size))
+        JacNonlin = np.reshape(approx_derivative(tres, self.params, method='2-point'), (-1, self.params.size))
         JacLin = np.concatenate([self.K, self.alpha * self.L])
         Jac = np.concatenate([JacNonlin, JacLin], axis=1)
 
