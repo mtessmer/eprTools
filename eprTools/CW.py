@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 from scipy.signal import find_peaks_cwt
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
+from .utils import read_param_file
 
 class CWSpec:
     """Continuous wave spectroscopy object
@@ -14,7 +15,7 @@ class CWSpec:
 
     """
 
-    def __init__(self, field, spec, preprocess=False, k=0, ends=50):
+    def __init__(self, field, spec, preprocess=False, k=0, ends=50, **kwargs):
         """
         Initialize the CW experiment object.
 
@@ -38,12 +39,17 @@ class CWSpec:
 
         self.field = field
         self.spec = spec
+        self.param_dict = kwargs.get('param_dict', None)
+        self.bg_spectrum = kwargs.get('bg_spectrum', None)
+        self.k = k
+        self.ends = ends
+
         if preprocess:
-            self._prep(k=k, ends=ends)
+            self._prep()
 
     # import methods
     @classmethod
-    def from_file(cls, file_name, preprocess=False, k=0, ends=50):
+    def from_file(cls, file_name, preprocess=False, k=0, ends=50, **kwargs):
         """
         Import raw data from file.
 
@@ -72,26 +78,62 @@ class CWSpec:
 
         # Open the file
         with open(file_name, 'rb') as file:
-
+            extension = file_name[-3:]
             # Determine file type
-            if file_name[-3:] == 'DTA':
+            if  extension == 'DTA':
                 field, spec = load_bruker(file, file_name)
-
-            elif file_name[-3:] == 'spc':
+                parameter_file = file_name[:-3] + 'DSC'
+                filetype = 'BES3T'
+            elif extension == 'spc':
                 field, spec = load_winepr(file, file_name)
+                parameter_file = file_name[:-3] + 'par'
+                filetype = 'ESP'
             else:
                 field, spec = load_csv(file, file_name)
+                parameter_file = None
+                filetype='UNK'
 
-            CW_obj = cls(field, spec, preprocess, k, ends)
+            pardict = read_param_file(parameter_file)
+            pardict['filetype'] = filetype
+            CW_obj = cls(field, spec, preprocess, k, ends, param_dict=pardict, **kwargs)
 
             return CW_obj
 
     # Preparatory methods
-    def _prep(self, k=0, ends=50):
-        self.basecorr(k, ends)
+    def _prep(self):
+        self.basecorr()
         self.normalize()
 
-    def basecorr(self, k=0, ends=100):
+    def basecorr(self):
+        if self.bg_spectrum is not None:
+            self.exp_basecorr()
+        else:
+            self.poly_basecorr()
+
+    def exp_basecorr(self):
+
+        parname = 'JSD' if self.param_dict['filetype'] == 'ESP' else 'AVGS'
+
+        if isinstance(self.bg_spectrum, str):
+            bg_spc = CWSpec.from_file(self.bg_spectrum)
+        elif isinstance(self.bg_spectrum, CWSpec):
+            bg_spc = self.bg_spectrum
+        else:
+            raise ValueError('`bg_spectrum` must be a CWSpec object or a file name containing a readable CW spectrum')
+
+        bg_spc.spec = bg_spc.spec - np.mean(bg_spc.spec)
+        norm_spec = bg_spc.spec / float(bg_spc.param_dict[parname][0])
+
+        self.spec = self.spec / float(self.param_dict[parname][0])
+
+        self.spec -= norm_spec
+
+
+
+
+    def poly_basecorr(self):
+        k = self.k
+        ends = self.ends
         x = np.arange(len(self.spec))
 
         iSpec = cumtrapz(self.spec, self.field, initial=0)

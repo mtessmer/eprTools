@@ -6,5 +6,5 @@ setup(name='eprTools',
       description='python tools for EPR',
       author='Maxx Tessmer',
       author_email='mhtessmer@gmail.com',
-      install_requires=['numpy', 'scipy', 'sklearn', 'matplotlib', 'numba', 'cvxopt'],
+      install_requires=['numpy', 'scipy', 'scikit-learn', 'matplotlib', 'numba', 'cvxopt'],
       packages=['eprTools'])

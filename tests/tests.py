@@ -74,6 +74,22 @@ class TestDEER:
         ex.get_fit()
         print(method, ': ', time() - t1)
 
+    def test_flattness(self):
+        t1 = time()
+        r = np.linspace(15, 100, 220)
+        ex = DeerExp.from_file('test_data/Example_DEER.DTA', r=r, L_criteria='aic')
+        ex.set_trim(3000)
+        ex.get_fit()
+
+        fig, ax = plt.subplots(2)
+        ax[0].plot(ex.time, ex.real)
+        ax[0].plot(ex.time, ex.fit)
+        ax[0].plot(ex.time, (1-ex.lam) * ex.background)
+        ax[1].plot(ex.r, ex.P)
+        ax[1].fill_between(ex.r, *ex.ci(95), alpha=0.5)
+        plt.show()
+
+        print('stuff')
     def test_extra_reg(self):
         t = np.linspace(-100, 5000, 256)
         r = np.linspace(15, 80, 256)
@@ -166,6 +182,30 @@ class TestDEER:
         ax[1].plot(ex.r, ex.P)
         ax[1].fill_between(ex.r, *ex.ci(50), alpha=0.5)
         ax[1].fill_between(ex.r, *ex.ci(95), alpha=0.2)
+        plt.show()
+
+    def test_bgr(self):
+        np.random.seed(201)
+        r = np.linspace(15, 200, 300)
+        t = np.linspace(-100, 3500, 300)
+        P = norm(45, 2).pdf(r)
+        P /= P.sum()
+        K, _, _ = utils.generate_kernel(r, t)
+        mod = 0.2
+        d = 1e-4
+        V = (1 - mod + mod * K @ P) * np.exp(-np.abs(t) * d) + np.random.normal(0, 0.05, len(t))
+
+        ex = DeerExp.from_array(t, V, r)
+        ex.get_fit()
+        print(ex.lam)
+
+        fig, ax = plt.subplots(2)
+        ax[0].plot(ex.time, ex.real)
+        ax[0].plot(ex.time, ex.fit)
+        ax[0].plot(ex.time, (1 - ex.lam) * ex.background)
+        ax[1].plot(ex.r, ex.P)
+        ax[1].fill_between(ex.r, *ex.ci(95), alpha=0.5)
+        ax[1].plot(ex.r, P)
         plt.show()
 
 class TestCWSpec:

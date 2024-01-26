@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import matplotlib.pyplot as plt
-from eprTools import DEERSpec
+from eprTools import DeerExp
 from eprTools import do_it_for_me
 from time import time
 

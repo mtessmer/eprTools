@@ -1,18 +1,20 @@
 from copy import deepcopy
 import numbers, pickle, inspect
-from collections import Sized
+from typing import Sized
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize, fminbound, least_squares
 from scipy.optimize._numdiff import approx_derivative
 from scipy.stats import norm
+from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 from .nnls_funcs import NNLS_FUNCS
 from .selection_methods import SELECTION_METHODS
 from .utils import *
 from .fg_models import DeerModel
 from .bg_models import HomogeneousND
-
+from tqdm import tqdm
+eps = np.finfo(float).eps
 
 class DeerExp:
     def __init__(self, time, V, **kwargs):
@@ -25,7 +27,7 @@ class DeerExp:
 
         # Working values
         self.time = time
-        self.V = V / max(V)
+        self.V = V
 
         # Default phase and trimming parameters
         self.trim_length = None
@@ -33,28 +35,35 @@ class DeerExp:
 
         self.phi = None
         self.user_phi = False
-        self.do_phase = kwargs.get('do_phase', True)
+        self.do_phase = kwargs.get('do_phase', False)
 
         self.t0 = None
         self.user_zt = False
         self.do_zero_time = kwargs.get('do_zero_time', True)
+        self.do_A0 = kwargs.get('do_A0', True)
 
         # Fit results
         self.nnls = kwargs.get('nnls', 'cvxnnls')
         self.fit = None
         self.alpha = None
-        self.P = kwargs.get('P', None)
+        self._P = kwargs.get('P', None)
         self.residuals = np.inf
 
+        self.K_kwargs = {k: v for k, v in kwargs.items() if k in ['g']}
+
+        self.mod_penalty = kwargs.get('mod_penalty', 10)
+        self.freeze_alpha = False
+        self.freeze_mod = False
+
         # Model
-        self._r = setup_r(kwargs.get('r', (15, 80)), kwargs.get('size', 256))
+        self._r = setup_r(kwargs.get('r', (15, 80)), kwargs.get('size', len(self.raw_time)))
 
         self.bg_model = kwargs.get('bg_model', HomogeneousND(self.time))
         if inspect.isclass(self.bg_model):
             self.bg_model = self.bg_model(self.time)
 
 
-        self.model = kwargs.get('fg_model', DeerModel(self.r, self.time, self.bg_model))
+        self.model = kwargs.get('fg_model', DeerModel(self.r, self.time, self.bg_model, self.K_kwargs))
         if inspect.isclass(self.bg_model):
             self.bg_model = self.bg_model(self.r, self.time, self.bg_model)
 
@@ -62,7 +71,7 @@ class DeerExp:
         self.background = None
 
         # Regularization
-        self.L = reg_operator(self.r, kind='L2+')
+        self.L = reg_operator(self.r, kind='L2')
         self.selection_method = kwargs.get('L_criteria', 'gcv')
 
         self.alpha_idx = None
@@ -74,62 +83,20 @@ class DeerExp:
     @classmethod
     def from_file(cls, file_name, r=(15, 80), **kwargs):
 
-        # Look for time from DSC file
-        param_file = file_name[:-3] + 'DSC'
-        try:
-            param_dict = read_param_file(param_file)
-        except OSError:
-            print("Warning: No parameter file found")
+        t, V, params = read_bruker(file_name, return_params=True)
 
-        # Don't perform phase correction if experiment was not phase cycled
-        do_phase = True
-        if param_dict['PlsSPELLISTSlct'][0] == 'none':
+        if kwargs.pop('do_phase', True):
+            V = opt_phase(V)
             do_phase = False
 
-        # Calculate time axis data from experimental params
-        points = int(param_dict['XPTS'][0])
-        time_min = float(param_dict['XMIN'][0])
-        time_width = float(param_dict['XWID'][0])
+        if len(V.shape) > 1:
+            V = V.sum(axis=0)
 
-        if 'YPTS' in param_dict.keys():
-            n_scans = int(param_dict['YPTS'][0])
-        else:
-            n_scans = 1
-
-        time_max = time_min + time_width
-        time = np.linspace(time_min, time_max, points)
-
-        # Read spec data
-        spec = np.fromfile(file_name, dtype='>d')
-
-        # Reshape and form complex array
-        spec.shape = (-1, 2)
-        spec = spec[:, 0] + 1j * spec[:, 1]
-
-        # If the experiment is 2D
-        if n_scans > 1:
-            # Reshape to a 2D matrix
-            spec.shape = (n_scans, -1)
-
-            # Trim scans cut short of the predetermined number
-            mask = ~np.all(spec == 0, axis=1)
-            if ~mask.sum():
-                spec = spec[mask]   # All scans that are 0
-                spec = spec[:-1]    # Last scan that wasn't all 0 probably was cut short
-
-            spec = opt_phase(spec)
-
-            do_phase = False
-
-            # Roll with the mean for now.
-            # TODO: Implement usage of individual scans in the future.
-            spec = spec.mean(axis=0)
-
-        # Construct DEERSpec object
-        return cls(time, spec, r=r, do_phase=do_phase, **kwargs)
+        # Construct DeerExp object
+        return cls(t, V, r=r, do_phase=do_phase, **kwargs)
 
     @classmethod
-    def from_array(cls, time, spec, r=(15, 80)):
+    def from_array(cls, time, spec, r=(15, 80), **kwargs):
         """
         Create a DEERSpec object from an array like data structure.
 
@@ -142,15 +109,10 @@ class DeerExp:
 
         :return: DEERSpec
             A DEERSpec object with the user supplied data
-
-        >>>
-        >>>
-        >>>
-        >>>
         """
 
         spec = np.asarray(spec, dtype=complex)
-        return cls(time, spec, r=r, do_zero_time=False)
+        return cls(time, spec, r=r, **kwargs)
 
     @classmethod
     def from_distribution(cls, r, P, time=3500):
@@ -172,7 +134,7 @@ class DeerExp:
         spec = np.asarray(spec, dtype=complex)
 
         return cls(time, spec, background_kind='3D', background_k=0,
-                   r=r, do_phase=False, do_zero_time=False, P=P)
+                   r=r, do_zero_time=False, P=P)
 
     @property
     def real(self):
@@ -256,6 +218,15 @@ class DeerExp:
 
         if self.do_zero_time:
             self.zero_time()
+        elif self.do_A0:
+            _, ft  = fit_zero_time(self.raw_time, self.raw_real, return_fit=True)
+            self.A0 = ft[0]
+            self.t0 = 0
+
+
+            # Correct t0 and A0
+            self.time = self.raw_time.copy()
+            self.V = self.raw_V / self.A0
 
         if self.do_phase:
             self.phase()
@@ -264,6 +235,8 @@ class DeerExp:
             self.trim()
 
         self.model.t = self.time
+
+        self.get_model_params()
 
 
     def set_trim(self, trim):
@@ -311,26 +284,84 @@ class DeerExp:
 
         # Correct t0 and A0
         self.time = self.raw_time - self.t0
-        self.V = self.raw_V / self.A0
+        if self.do_A0:
+            self.V = self.raw_V / self.A0
+
+    def get_model_params(self):
+        # buffer = int(0.1 * len(self.time))
+        buffer = 2 * np.argmin(savgol_filter(np.diff(self.real), 20, 3))
+        bgfit = []
+        for i in range(buffer * 6):
+            # Needs to be able to pass any kw constructor args
+            partial_Bfnc = self.bg_model.__class__(self.time[buffer*2 + i:buffer*4 + i])
+            resid = lambda params : self.real[buffer*2 + i:buffer*4 + i] - (1-params[0]) * partial_Bfnc(params[1:])
+            fit = least_squares(resid, x0=self.model.default_params)
+            bgfit.append(fit.x)
+        bgfit = np.array(bgfit)
+
+
+        means = np.mean(bgfit, axis=0)
+        stds = np.std(bgfit, axis=0)
+        self.model.par0 = means
+        self.model.lbs = means - stds
+        self.model.ubs = means + stds
 
     def get_fit(self):
         self.score = np.inf
-        opt = least_squares(self.residual, x0=(0.3, 1e-4), bounds=([0., 0.], [1., 1e-1]), ftol=1e-10)
-        self.get_uncertainty()
+
+        opt = least_squares(self.residual, x0=(self.model.par0), bounds=(self.model.lbs, self.model.ubs), ftol=1e-10)
+        # self.get_uncertainty()
+
+    def bootstrap(self, n=1000):
+
+        noiselvl = np.std(self.real - self.fit)
+        Ps = []
+        def res(param, Vnoise, return_fits = False):
+            K = self.model(param)
+            P = self.nnls(K, self.L, Vnoise, self.alpha)
+            fit = K @ P
+            residuals = fit - Vnoise
+            if return_fits:
+                return P, fit
+            else:
+                return np.concatenate([residuals, param[0:1]])
+
+        param_list, Ps, fits = [], [], []
+        for i in tqdm(range(n)):
+            Vnoise = self.real + np.random.normal(0, noiselvl, len(self.real))
+            res_v = lambda param : res(param, Vnoise)
+            opt = least_squares(res_v, x0=((self.model.par0)), bounds=(self.model.lbs, self.model.ubs))
+            # opt = minimize(res_v, x0=(self.mod0, self.bgp0), bounds=((self.lbs[0], self.ubs[0]), (self.lbs[1], self.ubs[1])))
+            param_list.append(opt.x)
+            P, fit = res(opt.x, Vnoise, return_fits = True)
+            Ps.append(P)
+            fits.append(fit)
+
+
+
+        Ps, fits, param_list = np.array(Ps), np.array(fits), np.array(param_list)
+        self.Pstd = np.std(Ps, axis=0)
+
+        Bs = (1 - param_list[:, 0])[:, None] * np.array([self.bg_model(p) for p in param_list[:, 1:]])
+        self.Bstd = np.std(Bs, axis=0)
+
+        self.fitstd = np.std(fits, axis=0)
+
+
 
     def residual(self, params, fit_alpha=False):
         # Get dipolar kernel
-        K, r, t = generate_kernel(self.r, self.time)
+        K, r, t = generate_kernel(self.r, self.time, **self.K_kwargs)
         # Add background to kernel
         self.lam = params[0]
         self.background = self.bg_model(params[1:])
 
         self.K = self.model(params)
 
-        diff = np.abs(self.params - params) / params
+        diff = np.abs((self.params - params) / params)
         if np.any(diff > 1e-3) or fit_alpha:
+            self.alpha_range = (1e-8, 1e4)
 
-            self.alpha_range = reg_range(self.K, self.L)
             log_alpha = fminbound(lambda x: self.get_score(10**x),
                                   np.log10(min(self.alpha_range)),
                                   np.log10(max(self.alpha_range)), xtol=0.01)
@@ -355,13 +386,15 @@ class DeerExp:
             the L_curve critera score for the given alpha and fit
         """
         # Get initial matrices of optimization
-        self.P = self.nnls(self.K, self.L, self.real, alpha)
+        self._P = self.nnls(self.K, self.L, self.real, alpha)
 
-        self.fit = self.K @ self.P
+        self.fit = self.K @ self._P
         self.residuals = self.fit - self.real
-        self.regres = np.concatenate([self.residuals, alpha * self.L @ self.P])
+        mod_penalty =  [self.mod_penalty * (self.lam - self.params[0])]
+        self.regres = np.concatenate([self.residuals,
+                                      alpha * self.L @ self._P, mod_penalty])
 
-        # Regres is not as large as deerlab because self.P is smaller because its per Angstrom not per nm
+        # Regres is not as large as deerlab because self._P is smaller because its per Angstrom not per nm
         self.score = self.selection_method(self.K, self.L, alpha, self.residuals)
         return self.score
 
@@ -393,38 +426,36 @@ class DeerExp:
         self.conc = conc / (1e-6*1e3*NA)
         return self.conc
 
-    def get_uncertainty(self):
-        """
-        :return:
-        """
-        def tres(params):
-            K = self.model(params)
-            res = K @ self.P - self.real
-            return np.concatenate([res, self.alpha * self.L @ self.P])
+    @property
+    def P(self):
+        return self._P * self.Pscale
 
-        def ures(P):
-            res = self.K @ P - self.real
-            return res
+    @property
+    def Pscale(self):
+        return 1 / np.trapz(self._P, self.r)
 
-
-        # Get jacobian of linear and nonlinear fits
-        JacNonlin = np.reshape(approx_derivative(tres, self.params, method='2-point'), (-1, self.params.size))
-        JacLin = np.concatenate([self.K, self.alpha * self.L])
-        Jac = np.concatenate([JacNonlin, JacLin], axis=1)
-
-        resreg = self.alpha * self.L @ self.P
-        res = np.concatenate([self.residuals, resreg])
-        self.covmatrix = hccm(Jac, res, 'HC1')
-        std = np.sqrt(np.diag(self.covmatrix))
-        self.std = std[2:]
-        self.ustd = self.P + self.std
-        self.lstd = np.maximum(0, self.P - self.std)
-
-        self.params_std = std[:2]
-
-    def ci(self, percent):
+    def Pci(self, percent):
         alpha = 1 - percent / 100
         p = 1 - alpha/2
-        lower_bounds = np.maximum(0, self.P - norm.ppf(p) * self.std)
-        upper_bounds = np.maximum(0, self.P + norm.ppf(p) * self.std)
+
+        lower_bounds = np.maximum(0, self.P - norm.ppf(p) * self.Pscale * self.Pstd)
+        upper_bounds = np.maximum(0, self.P + norm.ppf(p) *  self.Pscale * self.Pstd)
+        return lower_bounds, upper_bounds
+
+    @property
+    def B(self):
+        return (1-self.lam) * self.background
+
+    def Bci(self, percent):
+        alpha = 1 - percent / 100
+        p = 1 - alpha/2
+        lower_bounds = np.maximum(0, self.B - norm.ppf(p) * self.Bstd)
+        upper_bounds = np.maximum(0, self.B + norm.ppf(p) * self.Bstd)
+        return lower_bounds, upper_bounds
+
+    def fitci(self, percent):
+        alpha = 1 - percent / 100
+        p = 1 - alpha/2
+        lower_bounds = np.maximum(0, self.fit - norm.ppf(p) * self.fitstd)
+        upper_bounds = np.maximum(0, self.fit + norm.ppf(p) * self.fitstd)
         return lower_bounds, upper_bounds
