@@ -51,7 +51,7 @@ class DeerExp:
 
         self.K_kwargs = {k: v for k, v in kwargs.items() if k in ['g']}
 
-        self.mod_penalty = kwargs.get('mod_penalty', 10)
+        self.mod_penalty = kwargs.get('mod_penalty', 1)
         self.freeze_alpha = False
         self.freeze_mod = False
 
@@ -288,8 +288,8 @@ class DeerExp:
             self.V = self.raw_V / self.A0
 
     def get_model_params(self):
-        # buffer = int(0.1 * len(self.time))
-        buffer = 2 * np.argmin(savgol_filter(np.diff(self.real), 20, 3))
+        buffer = int(0.1 * len(self.time))
+        # buffer = 2 * np.argmin(savgol_filter(np.diff(self.real), 20, 3))
         bgfit = []
         for i in range(buffer * 6):
             # Needs to be able to pass any kw constructor args
@@ -390,7 +390,7 @@ class DeerExp:
 
         self.fit = self.K @ self._P
         self.residuals = self.fit - self.real
-        mod_penalty =  [self.mod_penalty * (self.lam - self.params[0])]
+        mod_penalty =  [self.mod_penalty * self.lam]
         self.regres = np.concatenate([self.residuals,
                                       alpha * self.L @ self._P, mod_penalty])
 
