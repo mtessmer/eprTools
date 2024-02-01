@@ -236,7 +236,7 @@ class DeerExp:
 
         self.model.t = self.time
 
-        self.get_model_params()
+
 
 
     def set_trim(self, trim):
@@ -288,25 +288,36 @@ class DeerExp:
             self.V = self.raw_V / self.A0
 
     def get_model_params(self):
+
+
         buffer = int(0.1 * len(self.time))
         # buffer = 2 * np.argmin(savgol_filter(np.diff(self.real), 20, 3))
         bgfit = []
-        for i in range(buffer * 6):
-            # Needs to be able to pass any kw constructor args
-            partial_Bfnc = self.bg_model.__class__(self.time[buffer*2 + i:buffer*4 + i])
-            resid = lambda params : self.real[buffer*2 + i:buffer*4 + i] - (1-params[0]) * partial_Bfnc(params[1:])
-            fit = least_squares(resid, x0=self.model.default_params)
-            bgfit.append(fit.x)
-        bgfit = np.array(bgfit)
+        if isinstance(self.bg_model, HomogeneousND):
+            for i in range(buffer * 4):
+                # Needs to be able to pass any kw constructor args
+                partial_Bfnc = self.bg_model.__class__(self.time[buffer*2 + i:], **self.bg_model.kwargs)
+                resid = lambda params : self.real[buffer*2 + i:] - (1-params[0]) * partial_Bfnc(params[1:])
+                fit = least_squares(resid, x0=self.model.default_params, bounds=(self.model.lbs, self.model.ubs))
+                bgfit.append(fit.x)
+            bgfit = np.array(bgfit)
+            means = np.mean(bgfit, axis=0)
+            stds = np.std(bgfit, axis=0)
 
+        else:
+            partial_Bfnc = self.bg_model.__class__(self.time[buffer*2:], **self.bg_model.kwargs)
+            resid = lambda params : self.real[buffer*2:] - (1-params[0]) * partial_Bfnc(params[1:])
+            fit = least_squares(resid, x0=self.model.default_params, bounds=(self.model.lbs, self.model.ubs))
+            means = fit.x
+            stds = np.diag(np.linalg.inv(np.dot(fit.jac.T, fit.jac)))
 
-        means = np.mean(bgfit, axis=0)
-        stds = np.std(bgfit, axis=0)
-        self.model.par0 = means
-        self.model.lbs = means - stds
-        self.model.ubs = means + stds
+        self.model.lbs = np.maximum(means - stds, self.model.lbs)
+        self.model.ubs = np.minimum(means + stds, self.model.ubs)
+        self.model.par0 = np.maximum(np.minimum(self.model.ubs, means), self.model.lbs)
 
     def get_fit(self):
+
+        self.get_model_params()
         self.score = np.inf
 
         opt = least_squares(self.residual, x0=(self.model.par0), bounds=(self.model.lbs, self.model.ubs), ftol=1e-10)
