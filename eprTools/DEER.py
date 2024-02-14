@@ -51,7 +51,7 @@ class DeerExp:
 
         self.K_kwargs = {k: v for k, v in kwargs.items() if k in ['g']}
 
-        self.mod_penalty = kwargs.get('mod_penalty', 1)
+        self.mod_penalty = kwargs.get('mod_penalty', 0.25)
         self.freeze_alpha = False
         self.freeze_mod = False
 
@@ -323,7 +323,7 @@ class DeerExp:
         opt = least_squares(self.residual, x0=(self.model.par0), bounds=(self.model.lbs, self.model.ubs), ftol=1e-10)
         # self.get_uncertainty()
 
-    def bootstrap(self, n=1000):
+    def bootstrap(self, n=100):
 
         noiselvl = np.std(self.real - self.Vfit)
         Ps = []
