@@ -44,7 +44,7 @@ class DeerExp:
 
         # Fit results
         self.nnls = kwargs.get('nnls', 'cvxnnls')
-        self.fit = None
+        self.Vfit = None
         self.alpha = None
         self._P = kwargs.get('P', None)
         self.residuals = np.inf
@@ -96,23 +96,23 @@ class DeerExp:
         return cls(t, V, r=r, do_phase=do_phase, **kwargs)
 
     @classmethod
-    def from_array(cls, time, spec, r=(15, 80), **kwargs):
+    def from_array(cls, time, V, r=(15, 80), **kwargs):
         """
-        Create a DEERSpec object from an array like data structure.
+        Create a DEERExp object from an array like data structure.
 
         :param time: np.ndarray
             Time axis of the DEER data
-        :param spec: np.ndarray
+        :param V: np.ndarray
             DEER Data array, can be real or complex valued
         :param r: float, 2-tuple, np.ndarray-like
             desired distance access, float --> Upper bound, 2-tuple --> (Lower bound, Upper bound), array-like --> axis
 
-        :return: DEERSpec
-            A DEERSpec object with the user supplied data
+        :return: DEERExp
+            A DEERExp object with the user supplied data
         """
 
-        spec = np.asarray(spec, dtype=complex)
-        return cls(time, spec, r=r, **kwargs)
+        V = np.asarray(V, dtype=complex)
+        return cls(time, V, r=r, **kwargs)
 
     @classmethod
     def from_distribution(cls, r, P, time=3500):
@@ -130,10 +130,10 @@ class DeerExp:
 
         K, r, time = generate_kernel(r, time, size=len(P))
 
-        spec = K.dot(P)
-        spec = np.asarray(spec, dtype=complex)
+        V = K.dot(P)
+        V = np.asarray(V, dtype=complex)
 
-        return cls(time, spec, background_kind='3D', background_k=0,
+        return cls(time, V, background_kind='3D', background_k=0,
                    r=r, do_zero_time=False, P=P)
 
     @property
@@ -202,13 +202,13 @@ class DeerExp:
 
     def copy(self):
         """
-        Create a deep copy of the DEERSpec object.
+        Create a deep copy of the DEERExp object.
         """
         return deepcopy(self)
 
-    def save(self, filename='DEERSpec.pkl'):
+    def save(self, filename='DEERExp.pkl'):
         """
-        Save DEERSpec object as pickle file
+        Save DEERExp object as pickle file
         """
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
@@ -325,7 +325,7 @@ class DeerExp:
 
     def bootstrap(self, n=1000):
 
-        noiselvl = np.std(self.real - self.fit)
+        noiselvl = np.std(self.real - self.Vfit)
         Ps = []
         def res(param, Vnoise, return_fits = False):
             K = self.model(param)
@@ -399,9 +399,10 @@ class DeerExp:
         # Get initial matrices of optimization
         self._P = self.nnls(self.K, self.L, self.real, alpha)
 
-        self.fit = self.K @ self._P
-        self.residuals = self.fit - self.real
-        mod_penalty =  [self.mod_penalty * self.lam]
+        self.Vfit = self.K @ self._P
+        self.residuals = self.Vfit - self.real
+
+        mod_penalty = [self.mod_penalty * self.lam] if self.mod_penalty is not None else []
         self.regres = np.concatenate([self.residuals,
                                       alpha * self.L @ self._P, mod_penalty])
 
@@ -467,6 +468,6 @@ class DeerExp:
     def fitci(self, percent):
         alpha = 1 - percent / 100
         p = 1 - alpha/2
-        lower_bounds = np.maximum(0, self.fit - norm.ppf(p) * self.fitstd)
-        upper_bounds = np.maximum(0, self.fit + norm.ppf(p) * self.fitstd)
+        lower_bounds = np.maximum(0, self.Vfit - norm.ppf(p) * self.fitstd)
+        upper_bounds = np.maximum(0, self.Vfit + norm.ppf(p) * self.fitstd)
         return lower_bounds, upper_bounds
