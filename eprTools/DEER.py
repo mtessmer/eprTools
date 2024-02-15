@@ -403,18 +403,21 @@ class DeerExp:
         self.score = self.selection_method(self.K, self.L, alpha, self.residuals)
         return self.score
 
-    def get_L_curve(self):
+    def get_L_curve(self, alphas = None):
         """
         calculate L-curve and return rho, eta and the chosen index
 
         :return rho, eta, alpha_idx:
         """
-        Ps = np.array([self.nnls(self.K, self.L, self.real, alpha) for alpha in self.alpha_range])
+        if alphas is None:
+            alphas = np.logspace(*np.log10(self.alpha_range), 80)
+
+        Ps = np.array([self.nnls(self.K, self.L, self.real, alpha) for alpha in alphas])
         fits = self.K @ Ps.T
         errs = fits - self.real.T[:, None]
         rho = np.log(np.linalg.norm(errs.T, axis=1))
         eta = np.log(np.linalg.norm((self.L @ Ps.T).T, axis=1))
-        alpha_idx = np.argmin(np.abs(self.alpha_range - self.alpha))
+        alpha_idx = np.argmin(np.abs(alphas - self.alpha))
 
         return rho, eta, alpha_idx
 

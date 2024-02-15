@@ -33,20 +33,16 @@ import matplotlib.pyplot as plt
 from eprTools import DeerExp
 
 # import data
-spc = DeerExp.from_file('Example_DEER.DTA')
-
-# set kernel parameters
-spc.set_kernel_r(rmin=15, rmax=60)
-spc.set_kernel_shape(250)
+spc = DeerExp.from_file('Example_DEER.DTA', r=(15, 60))
 
 # fit data
 spc.get_fit()
 
 # plot form factor, background correction, fit and distance distribution
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
-ax1.plot(spc.time, spc.real)
-ax1.plot(spc.fit_time, spc.Vfit)
-ax1.plot(spc.time, spc.background)
+ax1.plot(spc.t, spc.real)
+ax1.plot(spc.t, spc.Vfit)
+ax1.plot(spc.t, spc.B)
 ax2.plot(spc.r, spc.P)
 plt.show()
 
