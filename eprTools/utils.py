@@ -66,24 +66,51 @@ def read_param_file(param_file):
     if param_file is None:
         return {}
 
-    param_dict = {}
-    with open(param_file, 'r', encoding='latin_1') as file:
+    param_dict = {'DESC': {},
+                  'SPL': {},
+                  'DSL': {}}
+
+    with (open(param_file, 'r', encoding='CP1252') as file):
+
         for line in file:
             # Skip blank lines and lines with comment chars
-            if line.startswith(("*", "#", "\n")):
+            if line.startswith(("*", "\n", ' ')):
+                continue
+
+            elif line.startswith('#'):
+                section = line.split(maxsplit=1)[0][1:]
+                active_dict = param_dict[section]
+                continue
+
+
+            elif line.startswith('.DVC'):
+                new_section = line.split()[1].strip(',')
+                param_dict['DSL'][new_section] = {}
+                active_dict = param_dict['DSL'][new_section]
                 continue
 
             # Add keywords to param_dict
-            line = line.split()
-            try:
-                key = line.pop(0)
-                val = [arg.strip() for arg in line]
-            except IndexError:
-                key = line
-                val = None
+            kv = line.split(maxsplit=1)
+            key, val = kv if len(kv) == 2 else (kv[0], '')
 
-            if key:
-                param_dict[key] = val
+            # Parse string data
+            if val.startswith("'"):
+                val = val.strip("'")
+
+            # Parse array data
+            val = val.strip()
+            if val.startswith('{'):
+                end_idx = val.find('}')
+                header, vals = val[1:end_idx], val[end_idx+2:]
+                dim, shape, extra = header.split(';')
+                shape = tuple(int(s) for s in shape.split(','))
+                vals = np.array([float(x) for x in vals.split(',')])
+                vals.shape = shape
+                val = np.squeeze(vals)
+
+
+
+            active_dict[key] = val
 
     return param_dict
 
