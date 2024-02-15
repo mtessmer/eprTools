@@ -21,10 +21,16 @@ mySpc1 = CWSpec.from_file('Example_Apo.DTA', preprocess = True)
 mySpc2 = CWSpec.from_file('Example_Holo.DTA', preprocess = True)
 
 # plot CW spectra
-plt.plot(mySpc1.field, mySpc1.spec)
-plt.plot(mySpc2.field, mySpc2.spec)
+fig, ax = plt.subplots()
+ax.plot(mySpc1.field, mySpc1.spec)
+ax.plot(mySpc2.field, mySpc2.spec)
+ax.set_xlabel('field (G)')
+ax.set_yticks([])
 plt.show()
+fig.savefig('CW.png')
 ```
+![CW](examples/CW.png)
+
 
 ## Getting Started -- DEERSpec
 
@@ -39,20 +45,32 @@ spc = DeerExp.from_file('Example_DEER.DTA', r=(15, 60))
 spc.get_fit()
 
 # plot form factor, background correction, fit and distance distribution
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
-ax1.plot(spc.t, spc.real)
+fig, (ax1, ax2) = plt.subplots(2, constrained_layout=True)
+ax1.plot(spc.t, spc.V)
 ax1.plot(spc.t, spc.Vfit)
 ax1.plot(spc.t, spc.B)
-ax2.plot(spc.r, spc.P)
-plt.show()
+ax1.set_xlabel(r'time ($\rm\mu s$)')
 
+ax2.plot(spc.r, spc.P)
+ax2.set_yticks([])
+ax2.set_xlabel(r'distance ($\rm\AA$)')
+plt.show()
+fig.savefig('DEER.png')
+```
+![DEER](examples/DEER.png)
+
+
+```python
 # plot L-curve
 rho, eta, alpha_idx = spc.get_L_curve()
 
 fig2, ax = plt.subplots()
 ax.scatter(rho, eta)
 ax.scatter(rho[alpha_idx], eta[alpha_idx], c='r', facecolor=None)
-plt.show()
+ax.set_xlabel(r'$\rm\rho$')
+ax.set_ylabel(r'$\rm\eta$')
 
-print(spc.alpha)
+plt.show()
+fig2.savefig('L_curve.png')
 ```
+![L-curve](examples/L_curve.png)
