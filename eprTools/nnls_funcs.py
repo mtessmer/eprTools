@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import nnls
 import cvxopt as cvx
 from sklearn.linear_model import ElasticNetCV
-from sklearn.model_selection import GridSearchCV
+
 
 NNLS_FUNCS={}
 def nnls_function(func):
@@ -95,5 +95,5 @@ def cvxelastic(K, V, alpha, ratio, reltol=1e-8, abstol=1e-9):
 @nnls_function
 def elastic(K, y):
     eNet = ElasticNetCV(alphas=np.logspace(-4, 4), l1_ratio=np.linspace(0, 1, 11))
-    eNet.fit(K, y)
+    eNet.Vfit(K, y)
     return eNet.coef_, eNet.predict(K), eNet.alpha_, eNet.l1_ratio_

@@ -45,7 +45,7 @@ spc.get_fit()
 # plot form factor, background correction, fit and distance distribution
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=[20, 10.5])
 ax1.plot(spc.time, spc.real)
-ax1.plot(spc.fit_time, spc.fit)
+ax1.plot(spc.fit_time, spc.Vfit)
 ax1.plot(spc.time, spc.background)
 ax2.plot(spc.r, spc.P)
 plt.show()

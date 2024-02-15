@@ -69,7 +69,7 @@ def read_param_file(param_file):
     param_dict = {'DESC': {},
                   'SPL': {},
                   'DSL': {}}
-
+    active_dict = param_dict['DESC']
     with (open(param_file, 'r', encoding='CP1252') as file):
 
         for line in file:
@@ -101,6 +101,9 @@ def read_param_file(param_file):
             val = val.strip()
             if val.startswith('{'):
                 end_idx = val.find('}')
+                if end_idx == -1:
+                    continue
+
                 header, vals = val[1:end_idx], val[end_idx+2:]
                 dim, shape, extra = header.split(';')
                 shape = tuple(int(s) for s in shape.split(','))
@@ -123,13 +126,15 @@ def read_bruker(data_file, return_params=False, phase=False):
     except OSError:
         print("Warning: No parameter file found")
 
-    # Calculate time axis data from experimental params
-    points = int(param_dict['XPTS'][0])
-    time_min = float(param_dict['XMIN'][0])
-    time_width = float(param_dict['XWID'][0])
+    desc = param_dict['DESC']
 
-    if 'YPTS' in param_dict.keys():
-        n_scans = int(param_dict['YPTS'][0])
+    # Calculate time axis data from experimental params
+    points = int(desc['XPTS'])
+    time_min = float(desc['XMIN'])
+    time_width = float(desc['XWID'])
+
+    if 'YPTS' in desc.keys():
+        n_scans = int(desc['YPTS'])
     else:
         n_scans = 1
 

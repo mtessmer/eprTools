@@ -2,18 +2,15 @@ from copy import deepcopy
 import numbers, pickle, inspect
 from typing import Sized
 import numpy as np
-from scipy.interpolate import interp1d
-from scipy.optimize import minimize, fminbound, least_squares
-from scipy.optimize._numdiff import approx_derivative
+from scipy.optimize import fminbound, least_squares
 from scipy.stats import norm
-from scipy.signal import savgol_filter
-import matplotlib.pyplot as plt
 from .nnls_funcs import NNLS_FUNCS
 from .selection_methods import SELECTION_METHODS
-from .utils import *
+from .utils import opt_phase, generate_kernel, fit_zero_time, read_bruker, setup_r, reg_operator
 from .fg_models import DeerModel
 from .bg_models import HomogeneousND
 from tqdm import tqdm
+
 eps = np.finfo(float).eps
 
 class DeerExp:
@@ -40,10 +37,10 @@ class DeerExp:
         self.t0 = None
         self.user_zt = False
         self.do_zero_time = kwargs.get('do_zero_time', True)
-        self.do_A0 = kwargs.get('do_A0', True)
+        self.do_Vscale = kwargs.get('do_Vscale', True)
 
         # Fit results
-        self.nnls = kwargs.get('nnls', 'cvxnnls')
+        self.nnls = kwargs.get('nnls', 'spnnls')
         self.Vfit = None
         self.alpha = None
         self._P = kwargs.get('P', None)
@@ -115,7 +112,7 @@ class DeerExp:
         return cls(time, V, r=r, **kwargs)
 
     @classmethod
-    def from_distribution(cls, r, P, time=3500):
+    def from_distribution(cls, r, P, time=3500, **kwargs):
         """
         Constructor method for
 
@@ -128,13 +125,17 @@ class DeerExp:
         if len(r) != len(P):
             raise ValueError('r and P must have the same number of points')
 
+        P = P / P.sum()
         K, r, time = generate_kernel(r, time, size=len(P))
 
         V = K.dot(P)
         V = np.asarray(V, dtype=complex)
 
-        return cls(time, V, background_kind='3D', background_k=0,
-                   r=r, do_zero_time=False, P=P)
+        kwargs.setdefault('background_kind', '3D')
+        kwargs.setdefault('background_k', 0)
+        kwargs.setdefault('do_zero_time', False)
+
+        return cls(time, V, r=r, P=P, **kwargs)
 
     @property
     def real(self):
@@ -218,11 +219,11 @@ class DeerExp:
 
         if self.do_zero_time:
             self.zero_time()
-        elif self.do_A0:
-            _, ft  = fit_zero_time(self.raw_time, self.raw_real, return_fit=True)
-            self.A0 = ft[0]
-            self.t0 = 0
 
+        elif self.do_Vscale:
+            A0 = np.interp(0, self.raw_time, self.raw_V)
+            self.A0 = A0
+            self.t0 = 0
 
             # Correct t0 and A0
             self.time = self.raw_time.copy()
@@ -235,9 +236,6 @@ class DeerExp:
             self.trim()
 
         self.model.t = self.time
-
-
-
 
     def set_trim(self, trim):
         self.trim_length = trim
@@ -284,7 +282,7 @@ class DeerExp:
 
         # Correct t0 and A0
         self.time = self.raw_time - self.t0
-        if self.do_A0:
+        if self.do_Vscale:
             self.V = self.raw_V / self.A0
 
     def get_model_params(self):
@@ -326,7 +324,6 @@ class DeerExp:
     def bootstrap(self, n=100):
 
         noiselvl = np.std(self.real - self.Vfit)
-        Ps = []
         def res(param, Vnoise, return_fits = False):
             K = self.model(param)
             P = self.nnls(K, self.L, Vnoise, self.alpha)
@@ -348,8 +345,6 @@ class DeerExp:
             Ps.append(P)
             fits.append(fit)
 
-
-
         Ps, fits, param_list = np.array(Ps), np.array(fits), np.array(param_list)
         self.Pstd = np.std(Ps, axis=0)
 
@@ -357,8 +352,6 @@ class DeerExp:
         self.Bstd = np.std(Bs, axis=0)
 
         self.fitstd = np.std(fits, axis=0)
-
-
 
     def residual(self, params, fit_alpha=False):
         # Get dipolar kernel
@@ -439,14 +432,22 @@ class DeerExp:
         return self.conc
 
     @property
+    def t(self):
+        """Time in microseconds"""
+        return self.time / 1e3
+
+    @property
     def P(self):
+        """Probability density distribution"""
         return self._P * self.Pscale
 
     @property
     def Pscale(self):
+        """Scaling factor for the probability density"""
         return 1 / np.trapz(self._P, self.r)
 
     def Pci(self, percent):
+        """Probability density confidence interval"""
         alpha = 1 - percent / 100
         p = 1 - alpha/2
 
@@ -456,16 +457,20 @@ class DeerExp:
 
     @property
     def B(self):
+        """Time domain background signal"""
         return (1-self.lam) * self.background
 
     def Bci(self, percent):
+        """Time domain background signal confidence interval"""
+
         alpha = 1 - percent / 100
         p = 1 - alpha/2
         lower_bounds = np.maximum(0, self.B - norm.ppf(p) * self.Bstd)
         upper_bounds = np.maximum(0, self.B + norm.ppf(p) * self.Bstd)
         return lower_bounds, upper_bounds
 
-    def fitci(self, percent):
+    def Vfitci(self, percent):
+        """Time domain forground signal confidence interval"""
         alpha = 1 - percent / 100
         p = 1 - alpha/2
         lower_bounds = np.maximum(0, self.Vfit - norm.ppf(p) * self.fitstd)
