@@ -104,6 +104,8 @@ def read_param_file(param_file):
                 if end_idx == -1:
                     continue
 
+
+
                 header, vals = val[1:end_idx], val[end_idx+2:]
                 dim, shape, extra = header.split(';')
                 shape = tuple(int(s) for s in shape.split(','))
@@ -112,6 +114,13 @@ def read_param_file(param_file):
                 val = np.squeeze(vals)
 
 
+            # append multiline values
+            if isinstance(val, str):
+                while val.endswith('\\'):
+                    val = val[:-1]
+                    val += next(file).strip()
+
+                val = val.replace('\\n', '\n')
 
             active_dict[key] = val
 
