@@ -93,9 +93,7 @@ def read_param_file(param_file):
             kv = line.split(maxsplit=1)
             key, val = kv if len(kv) == 2 else (kv[0], '')
 
-            # Parse string data
-            if val.startswith("'"):
-                val = val.strip("'")
+
 
             # Parse array data
             val = val.strip()
@@ -114,13 +112,19 @@ def read_param_file(param_file):
                 val = np.squeeze(vals)
 
 
-            # append multiline values
+            # Parse string data
             if isinstance(val, str):
+
+                # Concatenate multiline values
                 while val.endswith('\\'):
                     val = val[:-1]
                     val += next(file).strip()
 
                 val = val.replace('\\n', '\n')
+
+                # Remove quotes
+                if val.startswith("'"):
+                    val = val.strip("'")
 
             active_dict[key] = val
 
