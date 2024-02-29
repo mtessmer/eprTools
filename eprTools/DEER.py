@@ -43,6 +43,7 @@ class DeerExp:
         self.nnls = kwargs.get('nnls', 'spnnls')
         self.Vfit = None
         self.alpha = None
+        self.alpha_range = (1e-8, 1e4)
         self._fixed_alpha = False
         self._P = kwargs.get('P', None)
         self.residuals = np.inf
@@ -365,8 +366,6 @@ class DeerExp:
 
         diff = np.abs((self.params - params) / params)
         if (np.any(diff > 1e-3) and not self._fixed_alpha) or fit_alpha:
-            self.alpha_range = (1e-8, 1e4)
-
             log_alpha = fminbound(lambda x: self.get_score(10**x),
                                   np.log10(min(self.alpha_range)),
                                   np.log10(max(self.alpha_range)), xtol=0.01)
