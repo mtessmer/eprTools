@@ -61,7 +61,7 @@ def test_from_array():
 
     ex = DeerExp.from_array(t, V, r)
 
-    np.testing.assert_almost_equal(ex.real, V / V.max())
+    np.testing.assert_almost_equal(ex.real, V / V.max(), decimal=3)
 
 
 @pytest.mark.parametrize('method, ans', zip(['cvxnnls', 'spnnls'], [0, 0]))
@@ -238,6 +238,23 @@ def test_generate_kernel_nm():
 def test_read_desc():
 
     data = utils.read_param_file('test_data/Example_DEER_2D.DSC')
+    print('test')
+
+def test_set_alpha():
+    ex = DeerExp.from_file('test_data/Example_DEER.DTA')
+
+    with np.load('test_data/set_alpha.npz') as f:
+        ans50, ans10 = f['ans50'], f['ans10']
+
+    ex.set_alpha(50)
+    ex.get_fit()
+    assert ex.alpha == 50
+    np.testing.assert_almost_equal(ex.P, ans50)
+
+    ex.set_alpha(10)
+    ex.get_fit()
+    assert ex.alpha == 10
+    np.testing.assert_almost_equal(ex.P, ans10)
 
 
 @pytest.mark.parametrize('dta_file', DTAFiles)

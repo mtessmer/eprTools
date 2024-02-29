@@ -43,6 +43,7 @@ class DeerExp:
         self.nnls = kwargs.get('nnls', 'spnnls')
         self.Vfit = None
         self.alpha = None
+        self._fixed_alpha = False
         self._P = kwargs.get('P', None)
         self.residuals = np.inf
 
@@ -296,7 +297,7 @@ class DeerExp:
                 # Needs to be able to pass any kw constructor args
                 partial_Bfnc = self.bg_model.__class__(self.time[buffer*2 + i:], **self.bg_model.kwargs)
                 resid = lambda params : self.real[buffer*2 + i:] - (1-params[0]) * partial_Bfnc(params[1:])
-                fit = least_squares(resid, x0=self.model.default_params, bounds=(self.model.lbs, self.model.ubs))
+                fit = least_squares(resid, x0=self.model.initial_params, bounds=(self.model.lbs, self.model.ubs))
                 bgfit.append(fit.x)
             bgfit = np.array(bgfit)
             means = np.mean(bgfit, axis=0)
@@ -305,20 +306,20 @@ class DeerExp:
         else:
             partial_Bfnc = self.bg_model.__class__(self.time[buffer*2:], **self.bg_model.kwargs)
             resid = lambda params : self.real[buffer*2:] - (1-params[0]) * partial_Bfnc(params[1:])
-            fit = least_squares(resid, x0=self.model.default_params, bounds=(self.model.lbs, self.model.ubs))
+            fit = least_squares(resid, x0=self.model.initial_params, bounds=(self.model.lbs, self.model.ubs))
             means = fit.x
             stds = np.diag(np.linalg.inv(np.dot(fit.jac.T, fit.jac)))
 
         self.model.lbs = np.maximum(means - stds, self.model.lbs)
         self.model.ubs = np.minimum(means + stds, self.model.ubs)
-        self.model.par0 = np.maximum(np.minimum(self.model.ubs, means), self.model.lbs)
+        self.model.initial_params = np.maximum(np.minimum(self.model.ubs, means), self.model.lbs)
 
     def get_fit(self):
 
         self.get_model_params()
         self.score = np.inf
 
-        opt = least_squares(self.residual, x0=(self.model.par0), bounds=(self.model.lbs, self.model.ubs), ftol=1e-10)
+        opt = least_squares(self.residual, x0=(self.model.initial_params), bounds=(self.model.lbs, self.model.ubs), ftol=1e-10)
         # self.get_uncertainty()
 
     def bootstrap(self, n=100):
@@ -338,7 +339,7 @@ class DeerExp:
         for i in tqdm(range(n)):
             Vnoise = self.real + np.random.normal(0, noiselvl, len(self.real))
             res_v = lambda param : res(param, Vnoise)
-            opt = least_squares(res_v, x0=((self.model.par0)), bounds=(self.model.lbs, self.model.ubs))
+            opt = least_squares(res_v, x0=self.model.initial_params, bounds=(self.model.lbs, self.model.ubs))
             # opt = minimize(res_v, x0=(self.mod0, self.bgp0), bounds=((self.lbs[0], self.ubs[0]), (self.lbs[1], self.ubs[1])))
             param_list.append(opt.x)
             P, fit = res(opt.x, Vnoise, return_fits = True)
@@ -363,7 +364,7 @@ class DeerExp:
         self.K = self.model(params)
 
         diff = np.abs((self.params - params) / params)
-        if np.any(diff > 1e-3) or fit_alpha:
+        if (np.any(diff > 1e-3) and not self._fixed_alpha) or fit_alpha:
             self.alpha_range = (1e-8, 1e4)
 
             log_alpha = fminbound(lambda x: self.get_score(10**x),
@@ -479,3 +480,11 @@ class DeerExp:
         lower_bounds = np.maximum(0, self.Vfit - norm.ppf(p) * self.fitstd)
         upper_bounds = np.maximum(0, self.Vfit + norm.ppf(p) * self.fitstd)
         return lower_bounds, upper_bounds
+
+    def set_alpha(self, alpha):
+
+        self.alpha = alpha
+        if alpha is None:
+            self._fixed_alpha = False
+        else:
+            self._fixed_alpha = True

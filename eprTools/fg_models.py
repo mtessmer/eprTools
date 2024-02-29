@@ -56,10 +56,22 @@ class DeerModel:
 
     @property
     def default_params(self):
-        return self._default_params + self.bg_model.default_params
+        default_params = self._default_params + self.bg_model.default_params
+        return default_params
 
     @default_params.setter
     def default_params(self, new_values):
         self._default_params = new_values[:len(self._default_params)]
         self.bg_model.default_params = new_values[len(self._default_params):]
 
+    @property
+    def initial_params(self):
+        if not hasattr(self, "_initial_params"):
+            self._initial_params = self.default_params
+
+        return self._initial_params
+
+    @initial_params.setter
+    def initial_params(self, new_values):
+        assert len(new_values) == len(self._initial_params)
+        self._initial_params = new_values

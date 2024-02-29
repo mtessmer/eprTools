@@ -198,7 +198,7 @@ h    = 10      ; number of shots per point (INTG and SPT)\n\
 n    = 1       ; number of sweeps to accumulate\n\
 m    = 8       ; number of tau1 averages for nuclear modulation (8)\n\
 \n\
-srt  = 2000 * srtu ; shot repetition time (SRT, srtu= 1 µs)\n\
+srt  = 2000 * srtu ; shot repetition time (SRT, srtu= 1 ï¿½s)\n\
 \n\
 aa0  = 100     \n\
 end defs\n
@@ -208,29 +208,48 @@ PlsSPELPrg         LizzyCanarie/DEER_BAWG.exp
 PlsSPELPrgTxt      \
 ;\n\
 ;\n\
-; DEER with Bruker SpinJet AWG\n\
-;\n\
+; DEER with Bruker SpinJet AWG\n\
+;
+\n\
 ;\n\
-begin defs\n\
+begin defs\n\
  dim s[512]     ; dimension for 2-pulse echo transient\n\
- dim1 s[512]    ; dimension for field sweep\n\
- dim2 s[1280]   ; dimension for echo decay experiment\n\
- dim3 s[101]    ; dimension for nutation experiment\n\
- dim4 s[101]    ; dimension for AWG pulse parameter sweep\n\\n\
- dim5 s[101,9]  ; dimension for pump pulse 2D parameter sweep\n\\n\
- dim6 s[61,21]  ; dimension for 2pt DEER for pump pulse property optimization\n\\n\
- dim7 s[310,1000]  ; dimension for 4-pulse DEER\n\\n\
-                ; must be adapted to delays!\n\\n\
-                ; sx =(d1+d2-2*d4)/d30\n\
- dim8 s[420]    ; dimension for 5-pulse DEER v01 (2nd pump before 2nd observer)\n\\n\
-                ; must be adapted to delays!\n\
-                ; sx =(d1+d2-2*d4-p2)/d30\n\
- dim9 s[420]    ; dimension for 5-pulse DEER v02 (2nd pump after last observer)\n\\n\
-                ; must be adapted to delays!\n\
-                ; sx =(d1+d2-2*d4-p2)/d30\n\
- dim10 s[310]   ; dimension for 7-pulse DEER (Prisner)\n\
-                ; must be adapted to delays!\n\
-                ; sx =(d2+d3-d5-d6-2*p2)/d30\n\
+ dim1 s[512]    ; dimension for field sweep
+\n\
+ dim2 s[1280]   ; dimension for echo decay experiment
+\n\
+ dim3 s[101]    ; dimension for nutation experiment
+\n\
+ dim4 s[101]    ; dimension for AWG pulse parameter sweep
+\n\\n\
+ dim5 s[101,9]  ; dimension for pump pulse 2D parameter sweep
+\n\\n\
+ dim6 s[61,21]  ; dimension for 2pt DEER for pump pulse property optimization
+\n\\n\
+ dim7 s[310,1000]  ; dimension for 4-pulse DEER
+\n\\n\
+                ; must be adapted to delays!
+\n\\n\
+                ; sx =(d1+d2-2*d4)/d30
+\n\
+ dim8 s[420]    ; dimension for 5-pulse DEER v01 (2nd pump before 2nd observer)
+\n\\n\
+                ; must be adapted to delays!
+\n\
+                ; sx =(d1+d2-2*d4-p2)/d30
+\n\
+ dim9 s[420]    ; dimension for 5-pulse DEER v02 (2nd pump after last observer)
+\n\\n\
+                ; must be adapted to delays!
+\n\
+                ; sx =(d1+d2-2*d4-p2)/d30
+\n\
+ dim10 s[310]   ; dimension for 7-pulse DEER (Prisner)
+\n\
+                ; must be adapted to delays!
+\n\
+                ; sx =(d2+d3-d5-d6-2*p2)/d30
+\n\
 end defs\n\
 ;\n\
 ; pulse definitions for phase cycling\n\
@@ -291,553 +310,1062 @@ begin awg6      ; 180 degree phase (-x)\n\
         1       ; shape\n\
 end awg6\n\
 ;\n\
-begin lists "none"\n\
+begin lists "none"
+\n\
  ph1 awg0\n\
  ph2 awg0\n\
- ph3 awg0\n\
+ ph3 awg0
+\n\
  ph4 awg4\n\
  ph5 awg0\n\
- asg1 +a\n\
- bsg1 +b\n\
-end lists \n\
-\n\
-begin lists1 "2-step"\n\
- ph1 awg0 awg2\n\
+ asg1 +a
+\n\
+ bsg1 +b
+\n\
+end lists 
+\n\
+
+\n\
+begin lists1 "2-step"
+\n\
+ ph1 awg0 awg2
+\n\
  ph2 awg0\n\
- ph3 awg0\n\
- ph4 awg4              \n\
+ ph3 awg0
+\n\
+ ph4 awg4              
+\n\
  ph5 awg0\n\
- asg1 +a -a                  \n\
- bsg1 +b -b  \n\
-end lists1\n\
-\n\
-begin lists2 "8-step (x)[x]+<y>+x"\n\
- ph1 +x -x +x -x +x -x +x -x  \n\
- ph2 +x +x -x -x +y +y -y -y  \n\
- ph3 +x\n\
- ph4 +x               \n\
- ph5 +x\n\
- asg1 +a -a +a -a -a +a -a +a                  \n\
+ asg1 +a -a                  
+\n\
+ bsg1 +b -b  
+\n\
+end lists1
+\n\
+
+\n\
+begin lists2 "8-step (x)[x]+<y>+x"
+\n\
+ ph1 +x -x +x -x +x -x +x -x  
+\n\
+ ph2 +x +x -x -x +y +y -y -y  
+\n\
+ ph3 +x
+\n\
+ ph4 +x               
+\n\
+ ph5 +x
+\n\
+ asg1 +a -a +a -a -a +a -a +a                  
+\n\
  bsg1 +b -b +b -b -b +b -b +b  \n\
-end lists2\n\
-\n\
-begin lists3 "8-step [x](x)+<y>+x"\n\
- ph1 awg0 awg0 awg1 awg1 awg2 awg2 awg3 awg3  \n\
- ph2 awg0 awg2 awg0 awg2 awg0 awg2 awg0 awg2  \n\
+end lists2
+\n\
+
+\n\
+begin lists3 "8-step [x](x)+<y>+x"
+\n\
+ ph1 awg0 awg0 awg1 awg1 awg2 awg2 awg3 awg3  
+\n\
+ ph2 awg0 awg2 awg0 awg2 awg0 awg2 awg0 awg2  
+\n\
  ph3 awg0  \n\
  ph4 awg4               \n\
- ph5 awg0\n\
+ ph5 awg0
+\n\
  asg1 +a +a +b +b -a -a -b -b                  \n\
  bsg1 +b +b -a -a -b -b +a +a  \n\
-end lists3\n\
-\n\
-begin lists4 "8-step equal tp [x](x)+<y>+x"\n\
- ph1 awg0 awg0 awg1 awg1 awg2 awg2 awg3 awg3  \n\
- ph2 awg5 awg6 awg5 awg6 awg5 awg6 awg5 awg6  \n\
+end lists3
+\n\
+
+\n\
+begin lists4 "8-step equal tp [x](x)+<y>+x"
+\n\
+ ph1 awg0 awg0 awg1 awg1 awg2 awg2 awg3 awg3  
+\n\
+ ph2 awg5 awg6 awg5 awg6 awg5 awg6 awg5 awg6  
+\n\
  ph3 awg5  \n\
  ph4 awg4               \n\
- ph5 awg5\n\
+ ph5 awg5
+\n\
  asg1 +a +a +b +b -a -a -b -b                  \n\
  bsg1 +b +b -a -a -b -b +a +a\n\
-end lists4\n\
-\n\
-begin lists5 "8-step (xx)+<y>[x]+<y>"\n\
+end lists4
+\n\
+
+\n\
+begin lists5 "8-step (xx)+<y>[x]+<y>"
+\n\
  ph1 +x +x +y +y -x -x -y -y  \n\
  ph2 +x -x +x -x +x -x +x -x  \n\
  ph3 +x\n\
- ph4 +x               \n\
- ph5 +x\n\
+ ph4 +x               
+\n\
+ ph5 +x
+\n\
  asg1 +a +a +b +b -a -a -b -b                 \n\
  bsg1 +b +b -a -a -b -b +a +a  \n\
-end lists5\n\
-\n\
-begin lists6 "16-step (x)[x]+<y>(x)"\n\
- ph1 +x -x +x -x +x -x +x -x +x -x +x -x +x -x +x -x  \n\
- ph2 +x +x -x -x +y +y -y -y +x +x -x -x +y +y -y -y  \n\
- ph3 +x \n\
+end lists5
+\n\
+
+\n\
+begin lists6 "16-step (x)[x]+<y>(x)"
+\n\
+ ph1 +x -x +x -x +x -x +x -x +x -x +x -x +x -x +x -x  
+\n\
+ ph2 +x +x -x -x +y +y -y -y +x +x -x -x +y +y -y -y  
+\n\
+ ph3 +x 
+\n\
  ph4 +x +x +x +x +x +x +x +x -x -x -x -x -x -x -x -x               \n\
- ph5 +x\n\
- asg1 +a -a +a -a -a +a -a +a +a -a +a -a -a +a -a +a                 \n\
+ ph5 +x
+\n\
+ asg1 +a -a +a -a -a +a -a +a +a -a +a -a -a +a -a +a                 
+\n\
  bsg1 +b -b +b -b -b +b -b +b +b -b +b -b -b +b -b +b  \n\
-end lists6\n\
-\n\
-begin lists7 "16-step +x[x][+<y>]+x"\n\
- ph1 +x \n\
- ph2 +x +x +x +x +y +y +y +y -x -x -x -x -y -y -y -y  \n\
- ph3 +x \n\
- ph4 +x               \n\
- ph5 +x\n\
- asg1 +a +a +a +a -a -a -a -a +a +a +a +a -a -a -a -a                 \n\
+end lists6
+\n\
+
+\n\
+begin lists7 "16-step +x[x][+<y>]+x"
+\n\
+ ph1 +x 
+\n\
+ ph2 +x +x +x +x +y +y +y +y -x -x -x -x -y -y -y -y  
+\n\
+ ph3 +x 
+\n\
+ ph4 +x               
+\n\
+ ph5 +x
+\n\
+ asg1 +a +a +a +a -a -a -a -a +a +a +a +a -a -a -a -a                 
+\n\
  bsg1 +b +b +b +b -b -b -b -b +b +b +b +b -b -b -b -b  \n\
-end lists7\n\
-\n\
-;\n\
-; Observer pulse tuning\n\
-;\n\
-begin exp "2-pulse echo" [TRANS QUAD]\n\
-\n\
-    shot i=1 to a              ; accumulation loop\n\
-      p0 [ph1]                 ; 1st pulse and phase program\n\
-      d1                       ; tau                       \n\
-      p1 [ph2]                 ; 2nd pulse and phase program\n\
-      d1                       ; tau\n\
-      d0                       ; constant acquisition delay\n\
-      dig [sg1]                ; acquisition\n\
-    next i                     ; end of accumulation loop \n\
-   \n\
-end exp \n\
-\n\
+end lists7
+\n\
+
+\n\
+;
+\n\
+; Observer pulse tuning
+\n\
+;
+\n\
+begin exp "2-pulse echo" [TRANS QUAD]
+\n\
+
+\n\
+    shot i=1 to a              ; accumulation loop
+\n\
+      p0 [ph1]                 ; 1st pulse and phase program
+\n\
+      d1                       ; tau                       
+\n\
+      p1 [ph2]                 ; 2nd pulse and phase program
+\n\
+      d1                       ; tau
+\n\
+      d0                       ; constant acquisition delay
+\n\
+      dig [sg1]                ; acquisition
+\n\
+    next i                     ; end of accumulation loop 
+\n\
+   
+\n\
+end exp 
+\n\
+
+\n\
 \n\
 ;\n\
-; Two-pulse field sweep\n\
-;\n\
-begin exp1 "Field sweep" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\
- totscans(n)                   ; output of total number of scans\n\
-\n\
-  bsweep x=1 to sx             ; sweep loop\n\
-\n\
-    shot i=1 to h              ; accumulation loop\n\
-      p0 [ph1]                 ; 1st pulse and phase program\n\
-      d1                       ; tau                       \n\
-      p1 [ph2]                 ; 2nd pulse and phase program\n\
-      d1                       ; tau\n\
-      d0                       ; constant acquisition delay\n\
-      acq [sg1]                ; acquisition\n\
-    next i                     ; end of accumulation loop\n\
- \n\
-   next x                      ; end of sweep loop\n\
-\n\
- scansdone(k)                  ; output of scans done\n\
-next k\n\
-\n\
+; Two-pulse field sweep
+\n\
+;
+\n\
+begin exp1 "Field sweep" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\
+ totscans(n)                   ; output of total number of scans
+\n\
+
+\n\
+  bsweep x=1 to sx             ; sweep loop
+\n\
+
+\n\
+    shot i=1 to h              ; accumulation loop
+\n\
+      p0 [ph1]                 ; 1st pulse and phase program
+\n\
+      d1                       ; tau                       
+\n\
+      p1 [ph2]                 ; 2nd pulse and phase program
+\n\
+      d1                       ; tau
+\n\
+      d0                       ; constant acquisition delay
+\n\
+      acq [sg1]                ; acquisition
+\n\
+    next i                     ; end of accumulation loop
+\n\
+ 
+\n\
+   next x                      ; end of sweep loop
+\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\
+next k
+\n\
+
+\n\
 end exp1\n\
-\n\
-;\n\
-; Two-pulse echo decay\n\
-;\n\
-begin exp2 "Echo decay" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\
- totscans(n)                   ; output of total number of scans\n\
-\n\
-  dx = 2*d1                    ; x-axis = 2 tau\n\
-  d11 = d1;\n\
-\n\
-  sweep x=1 to 256              ; sweep loop\n\
-\n\
-    shot i=1 to h              ; accumulation loop\n\
-      p0 [ph1]                 ; 1st pulse and phase program\n\\n\
-      d11                      ; tau                       \n\\n\
-      p1 [ph2]                 ; 2nd pulse and phase program\n\
-      d11                      ; tau\n\
-      d0                       ; constant acquisition delay\n\
-      acq [sg1]                ; acquisition\n\\n\
-    next i                     ; end of accumulation loop\n\
-\n\
-   d11 = d11+d30               ; increment tau\n\
-   dx = dx + d30\n\
-   dx = dx + d30\n\
- \n\
-   next x                      ; end of sweep loop\n\
+
 \n\
-  sweep x=257 to  sx           ; sweep loop\n\
-\n\
-    shot i=1 to h              ; accumulation loop\n\
-      p0 [ph1]                 ; 1st pulse and phase program\n\\n\
-      d11                      ; tau                       \n\\n\
-      p1 [ph2]                 ; 2nd pulse and phase program\n\
-      d11                      ; tau\n\
-      d0                       ; constant acquisition delay\n\
-      acq [sg1]                ; acquisition\n\\n\
-    next i                     ; end of accumulation loop\n\
-\n\
-   d11 = d11+d30               ; increment tau\n\
-   dx = dx + d30\n\
-   dx = dx + d30\n\
- \n\
-   next x                      ; end of sweep loop\n\
- scansdone(k)                  ; output of scans done\n\
-next k\n\
-\n\
-end exp2\n\
-\n\
-;\n\
-; Pulse nutations (observer pulse)\n\
-;\n\
-begin exp3 "Nutations obs" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\
- totscans(n)                   ; output of total number of scans\n\
-\n\
- p4 = 0                        ; starting inversion pulse length\n\
+;
+\n\
+; Two-pulse echo decay
+\n\
+;
+\n\
+begin exp2 "Echo decay" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\
+ totscans(n)                   ; output of total number of scans
+\n\
+
+\n\
+  dx = 2*d1                    ; x-axis = 2 tau
+\n\
+  d11 = d1;
+\n\
+
+\n\
+  sweep x=1 to 256              ; sweep loop
+\n\
+
+\n\
+    shot i=1 to h              ; accumulation loop
+\n\
+      p0 [ph1]                 ; 1st pulse and phase program
+\n\\n\
+      d11                      ; tau                       
+\n\\n\
+      p1 [ph2]                 ; 2nd pulse and phase program
+\n\
+      d11                      ; tau
+\n\
+      d0                       ; constant acquisition delay
+\n\
+      acq [sg1]                ; acquisition
+\n\\n\
+    next i                     ; end of accumulation loop
+\n\
+
+\n\
+   d11 = d11+d30               ; increment tau
+\n\
+   dx = dx + d30
+\n\
+   dx = dx + d30
+\n\
+ 
+\n\
+   next x                      ; end of sweep loop
+\n\
+\n\
+  sweep x=257 to  sx           ; sweep loop
+\n\
+
+\n\
+    shot i=1 to h              ; accumulation loop
+\n\
+      p0 [ph1]                 ; 1st pulse and phase program
+\n\\n\
+      d11                      ; tau                       
+\n\\n\
+      p1 [ph2]                 ; 2nd pulse and phase program
+\n\
+      d11                      ; tau
+\n\
+      d0                       ; constant acquisition delay
+\n\
+      acq [sg1]                ; acquisition
+\n\\n\
+    next i                     ; end of accumulation loop
+\n\
+
+\n\
+   d11 = d11+d30               ; increment tau
+\n\
+   dx = dx + d30
+\n\
+   dx = dx + d30
+\n\
+ 
+\n\
+   next x                      ; end of sweep loop
+\n\
+ scansdone(k)                  ; output of scans done
+\n\
+next k
+\n\
+
+\n\
+end exp2
+\n\
+
+\n\
+;
+\n\
+; Pulse nutations (observer pulse)
+\n\
+;
+\n\
+begin exp3 "Nutations obs" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\
+ totscans(n)                   ; output of total number of scans
+\n\
+
+\n\
+ p4 = 0                        ; starting inversion pulse length
+\n\
  d30 = 2                       ; pulse length increment\n\
- dx = p4                       ; starting x value\n\
-\n\
- sweep x=1 to sx\n\
-\n\
-    shot i=1 to h              ; accumulation loop\n\
-      p4 [ph4]                 ; inversion pulse  \n\
-      d8                       ; recovery delay            \n\
-      p0 [ph1]                 ; 1st pulse and phase program\n\
-      d1                       ; tau                       \n\
-      p1 [ph2]                 ; 2nd pulse and phase program\n\
-      d1                       ; tau\n\
-      d0                       ; constant acquisition delay\n\
-      acq [sg1]                ; acquisition\n\
-    next i                     ; end of accumulation loop  \n\
-\n\
-  p4 = p4+d30                  ; increment pulse length\n\
-  dx = dx+d30                  ; increment x axis\n\
-\n\
- next x\n\
-\n\
- scansdone(k)                  ; output of scans done\n\
-next k\n\
-\n\
+ dx = p4                       ; starting x value
+\n\
+
+\n\
+ sweep x=1 to sx
+\n\
+
+\n\
+    shot i=1 to h              ; accumulation loop
+\n\
+      p4 [ph4]                 ; inversion pulse  
+\n\
+      d8                       ; recovery delay            
+\n\
+      p0 [ph1]                 ; 1st pulse and phase program
+\n\
+      d1                       ; tau                       
+\n\
+      p1 [ph2]                 ; 2nd pulse and phase program
+\n\
+      d1                       ; tau
+\n\
+      d0                       ; constant acquisition delay
+\n\
+      acq [sg1]                ; acquisition
+\n\
+    next i                     ; end of accumulation loop  
+\n\
+
+\n\
+  p4 = p4+d30                  ; increment pulse length
+\n\
+  dx = dx+d30                  ; increment x axis
+\n\
+
+\n\
+ next x
+\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\
+next k
+\n\
+
+\n\
 end exp3\n\
-\n\
-;\n\
+
+\n\
+;
+\n\
 ; AWG pulse amplitude sweep (standing inversion recovery)\n\
-;\n\
-begin exp4 "AWG Asweep" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\\n\
- totscans(n)                   ; output of total number of scans\n\\n\
+;
+\n\
+begin exp4 "AWG Asweep" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\\n\
+ totscans(n)                   ; output of total number of scans
+\n\\n\
  aa0 = 0                       ; reset pulse amplitude\n\\n\
- dx = aa0                      ; initial amplitude value\n\\n\
+ dx = aa0                      ; initial amplitude value
+\n\\n\
 \n\
- sweep x=1 to sx\n\
+ sweep x=1 to sx
 \n\
-    shot i=1 to h              ; accumulation loop\n\\n\
-      p2 [awg4]                 ; inversion pulse              \n\\n\
-      d8                       ; recovery delay            \n\\n\
-      p0 [ph1]                 ; 1st pulse and phase program\n\\n\
-      d1                       ; tau                       \n\\n\
-      p1 [ph2]                 ; 2nd pulse and phase program\n\\n\
-      d1                       ; tau\n\\n\
-      d0                       ; constant acquisition delay\n\\n\
-      acq [sg1]                ; acquisition\n\\n\
-    next i                     ; end of accumulation loop  \n\\n\
-\n\
+\n\
+    shot i=1 to h              ; accumulation loop
+\n\\n\
+      p2 [awg4]                 ; inversion pulse              
+\n\\n\
+      d8                       ; recovery delay            
+\n\\n\
+      p0 [ph1]                 ; 1st pulse and phase program
+\n\\n\
+      d1                       ; tau                       
+\n\\n\
+      p1 [ph2]                 ; 2nd pulse and phase program
+\n\\n\
+      d1                       ; tau
+\n\\n\
+      d0                       ; constant acquisition delay
+\n\\n\
+      acq [sg1]                ; acquisition
+\n\\n\
+    next i                     ; end of accumulation loop  
+\n\\n\
+
+\n\
   dx = dx+d31                  ; increment x axis\n\\n\
-  aa0 = aa0+d31                ; increment amplitude\n\\n\
-\n\
- next x \n\
-\n\
- scansdone(k)                  ; output of scans done\n\\n\
-next k\n\
-\n\
-end exp4   \n\
-\n\
-\n\
-;\n\
-; Pump pulse amplitude and length sweep (standing inversion recovery)\n\\n\
-;\n\
-begin exp5 "Pump A/tp sweep" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\\n\
- totscans(n)                   ; output of total number of scans\n\\n\
-\n\
- ; p2 = 2                        ; initial pump pulse length\n\\n\
- dy = 10                       ; initial pump pulse length\n\\n\
- d30 = 5                       ; pump pulse increment\n\\n\
-\n\
- for y=1 to sy                 ; pulse length sweep\n\\n\
-\n\
-   dx = -50                    ; initial pump pulse amplitude\n\\n\
-\n\
-   sweep x=1 to sx\n\
-\n\
-      shot i=1 to h            ; accumulation loop\n\\n\
-        p2 [ph3]               ; inversion pulse              \n\\n\
-        d8                     ; recovery delay            \n\\n\
-        p0 [ph1]               ; 1st pulse and phase program\n\\n\
-        d1                     ; tau                       \n\\n\
-        p1 [ph2]               ; 2nd pulse and phase program\n\\n\
-        d1                     ; tau\n\\n\
-        d0                     ; constant acquisition delay\n\\n\
-        acq [sg1]              ; acquisition\n\\n\
-      next i                   ; end of accumulation loop  \n\\n\
-\n\
-   dx = dx+1;                ; amplitude increment\n\\n\
-\n\
-   next x \n\
-\n\
- ; p2 = p2+d30;                  ; pulse length increment\n\\n\
- dy = dy+d30;\n\
-\n\
- next y\n\
-\n\
- scansdone(k)                  ; output of scans done\n\\n\
-next k\n\
-\n\
+  aa0 = aa0+d31                ; increment amplitude
+\n\\n\
+
+\n\
+ next x 
+\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\\n\
+next k
+\n\
+
+\n\
+end exp4   
+\n\
+
+\n\
+
+\n\
+;
+\n\
+; Pump pulse amplitude and length sweep (standing inversion recovery)
+\n\\n\
+;
+\n\
+begin exp5 "Pump A/tp sweep" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\\n\
+ totscans(n)                   ; output of total number of scans
+\n\\n\
+
+\n\
+ ; p2 = 2                        ; initial pump pulse length
+\n\\n\
+ dy = 10                       ; initial pump pulse length
+\n\\n\
+ d30 = 5                       ; pump pulse increment
+\n\\n\
+
+\n\
+ for y=1 to sy                 ; pulse length sweep
+\n\\n\
+
+\n\
+   dx = -50                    ; initial pump pulse amplitude
+\n\\n\
+
+\n\
+   sweep x=1 to sx
+\n\
+
+\n\
+      shot i=1 to h            ; accumulation loop
+\n\\n\
+        p2 [ph3]               ; inversion pulse              
+\n\\n\
+        d8                     ; recovery delay            
+\n\\n\
+        p0 [ph1]               ; 1st pulse and phase program
+\n\\n\
+        d1                     ; tau                       
+\n\\n\
+        p1 [ph2]               ; 2nd pulse and phase program
+\n\\n\
+        d1                     ; tau
+\n\\n\
+        d0                     ; constant acquisition delay
+\n\\n\
+        acq [sg1]              ; acquisition
+\n\\n\
+      next i                   ; end of accumulation loop  
+\n\\n\
+
+\n\
+   dx = dx+1;                ; amplitude increment
+\n\\n\
+
+\n\
+   next x 
+\n\
+
+\n\
+ ; p2 = p2+d30;                  ; pulse length increment
+\n\\n\
+ dy = dy+d30;
+\n\
+
+\n\
+ next y
+\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\\n\
+next k
+\n\
+
+\n\
 end exp5 \n\
-\n\
-\n\
-;\n\
-; 2-point DEER for pump pulse property optimization\n\\n\
-; 2D sweep of two pulse parameters, change t in different experiments\n\\n\
-;\n\
-begin exp6 "DEER 2pt" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\\n\
- totscans(n)\n\
-\n\
- d21 = d1                      ; initial tau1 value\n\\n\
- d23 = d1                      ; set initial pump pulse delay to tau1\n\\n\
- d23 = d1 + d7                 ; additional pump pulse delay\n\\n\
- d24 = d1 + d2                 ; reset initial delay of last observer pulse\n\\n\
- d24 = d24 - d23               ; adjust delay of last observer pulse\n\\n\
-\n\
- dy = da0                      ; y parameter initialization\n\\n\
-\n\
-   for y=1 to sy               ; parameter loop\n\\n\
-\n\
-      dx = df0                 ; x parameter initialization\n\\n\
-\n\
-      sweep x=1 to sx          ; frequency offset loop\n\\n\
-\n\
-        shot i=1 to h          ; accumulation loop\n\\n\
-          p0 [ph1]             ; 1st observer pulse (pi/2) and phase program\n\\n\
-          d21                  ; tau1\n\\n\
-          p1 [ph2]             ; 2nd observer pulse (pi) and phase program\n\\n\
-          d23                  ; pump pulse delay\n\\n\
-          p2 [ph3]             ; pump pulse (pi)\n\\n\
-          d24                  ; tau1+tau2-pump pulse delay\n\\n\
-          p1 [ph4]             ; 3rd observer pulse (pi) and phase program\n\\n\
-          d2                   ; tau2\n\\n\
-          d0                   ; constant acquisition delay\n\\n\
-          acq [sg1]            ; acquisition\n\\n\
-        next i                 ; end of accumulation loop\n\\n\
-\n\
-      dx = dx+df1              ; define time axis increment\n\\n\
-\n\
-      next x                   ; end of sweep loop\n\\n\
-\n\
-   dy = dy+da1                 ; increment y axis\n\\n\
-\n\
-   next y                     \n\
-\n\
- scansdone(k)                  ; output of scans done\n\\n\
-next k                         ; end of scan accumulation loop\n\\n\
-\n\
+
+\n\
+
+\n\
+;
+\n\
+; 2-point DEER for pump pulse property optimization
+\n\\n\
+; 2D sweep of two pulse parameters, change t in different experiments
+\n\\n\
+;
+\n\
+begin exp6 "DEER 2pt" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\\n\
+ totscans(n)
+\n\
+
+\n\
+ d21 = d1                      ; initial tau1 value
+\n\\n\
+ d23 = d1                      ; set initial pump pulse delay to tau1
+\n\\n\
+ d23 = d1 + d7                 ; additional pump pulse delay
+\n\\n\
+ d24 = d1 + d2                 ; reset initial delay of last observer pulse
+\n\\n\
+ d24 = d24 - d23               ; adjust delay of last observer pulse
+\n\\n\
+
+\n\
+ dy = da0                      ; y parameter initialization
+\n\\n\
+
+\n\
+   for y=1 to sy               ; parameter loop
+\n\\n\
+
+\n\
+      dx = df0                 ; x parameter initialization
+\n\\n\
+
+\n\
+      sweep x=1 to sx          ; frequency offset loop
+\n\\n\
+
+\n\
+        shot i=1 to h          ; accumulation loop
+\n\\n\
+          p0 [ph1]             ; 1st observer pulse (pi/2) and phase program
+\n\\n\
+          d21                  ; tau1
+\n\\n\
+          p1 [ph2]             ; 2nd observer pulse (pi) and phase program
+\n\\n\
+          d23                  ; pump pulse delay
+\n\\n\
+          p2 [ph3]             ; pump pulse (pi)
+\n\\n\
+          d24                  ; tau1+tau2-pump pulse delay
+\n\\n\
+          p1 [ph4]             ; 3rd observer pulse (pi) and phase program
+\n\\n\
+          d2                   ; tau2
+\n\\n\
+          d0                   ; constant acquisition delay
+\n\\n\
+          acq [sg1]            ; acquisition
+\n\\n\
+        next i                 ; end of accumulation loop
+\n\\n\
+
+\n\
+      dx = dx+df1              ; define time axis increment
+\n\\n\
+
+\n\
+      next x                   ; end of sweep loop
+\n\\n\
+
+\n\
+   dy = dy+da1                 ; increment y axis
+\n\\n\
+
+\n\
+   next y                     
+\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\\n\
+next k                         ; end of scan accumulation loop
+\n\\n\
+
+\n\
 end exp6\n\
-\n\
-\n\
-;\n\
-; Four-pulse DEER\n\
-;\n\
-begin exp7 "4-pulse DEER" [INTG QUAD]\n\
-\n\
-;for k=1 to n                  ; averaging loop\n\\n\
- ;totscans(n)\n\
-\n\
-for y=1 to sy                  ; averaging loop for separate aquisition of each trace\n\\n\
-\n\
- d13 = d4                      ; initial pump pulse delay\n\\n\
- d21 = d1                      ; initial tau1 value\n\\n\
-\n\
-   for j=1 to m                ; tau1 averaging loop for suppression of nuclear modulations\n\\n\
-\n\
-      d23 = d13                ; reset initial pump pulse delay\n\\n\
-      d24 = d21+d2             ; reset initial delay of last observer pulse\n\\n\
-      d24 = d24-d23            ; adjust delay of last observer pulse \n\\n\
-     \n\
-      sweep x=1 to sx          ; sweep loop\n\\n\
-\n\
-        shot i=1 to h          ; accumulation loop\n\\n\
-          p0 [ph1]             ; 1st observer pulse (pi/2) and phase program\n\\n\
-          d21                  ; tau1\n\\n\
-          p1 [ph2]             ; 2nd observer pulse (pi) and phase program\n\\n\
-          d23                  ; pump pulse delay, initially deadtime\n\\n\
-          p2 [ph4]             ; pump pulse (pi)\n\\n\
-          d24                  ; tau1+tau2-d4\n\\n\
-          p1 [ph3]             ; 3rd observer pulse (pi) and phase program\n\\n\
-          d2                   ; tau2\n\\n\
-          d0                   ; constant acquisition delay\n\\n\
-          acq [sg1]            ; acquisition\n\\n\
-        next i                 ; end of accumulation loop\n\\n\
-\n\
-       dx = dx+d30             ; define time axis increment\n\\n\
-       d23 = d23+d30           ; increment pump pulse delay\n\\n\
-       d24 = d24-d30           ; decrement delay after pump pulse\n\\n\
-\n\
-      next x                   ; end of sweep loop\n\\n\
-\n\
-     d21 = d21+d31             ; increment tau1 for nucl. mod. averaging\n\\n\
-     d13 = d13+d31             ; pump pulse delay must be incremented, too\n\\n\
-\n\
-   next j                      ; end of nucl. mod. averaging loop\n\\n\
-\n\
-next y\n\
-\n\
- ;scansdone(k)                  ; output of scans done\n\\n\
-;next k                         ; end of scan accumulation loop\n\\n\
-\n\
-end exp7\n\
-\n\
-\n\
-;\n\
-; Five-pulse DEER with 2nd pump pulse before 2nd observer pulse\n\\n\
-;\n\
-begin exp8 "5-pulse DEER 01" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\
- totscans(n)\n\
-\n\
-  d13 = d4                     ; initial pump pulse delay\n\\n\
-  d21 = d1-d5                  ; delay between 2nd pump pulse and 2nd observer pulse\n\\n\
-  d21 = d21-p3                 ; subtract second pump pulse length from delay\n\\n\
-  d22 = d5+p3                  ; set delay after the second pump pulse\n\\n\
-\n\
-  d23 = d13                    ; reset initial pump pulse delay\n\\n\
-  d24 = d1+d2                  ; reset initial delay of last observer pulse\n\\n\
-  d24 = d24-d23                ; adjust inital delay of last observer pulse \n\\n\
-     \n\
-  sweep x=1 to sx              ; sweep loop\n\\n\
-\n\
-     shot i=1 to h             ; accumulation loop\n\\n\
-       p0 [ph1]                ; 1st observer pulse (pi/2) and phase program\n\\n\
-       d21                     ; delay before additional pump pulse (tau1-d5)\n\\n\
-       p3 [ph3]                ; additional pump pulse\n\\n\
-       d22                     ; d5\n\\n\
-       p1 [ph2]                ; 2nd observer pulse (pi) and phase program\n\\n\
-       d23                     ; pump pulse delay, initially deadtime\n\\n\
-       p2 [ph3]                ; pump pulse (pi)\n\\n\
-       d24                     ; tau1+tau2-pump pulse delay\n\\n\
-       p1 [ph4]                ; 3rd observer pulse (pi) and phase program\n\\n\
-       d2                      ; tau2\n\\n\
-       d0                      ; constant acquisition delay\n\\n\
-       acq [sg1]               ; acquisition\n\\n\
-     next i                    ; end of accumulation loop\n\\n\
-\n\
-    dx = dx+d30                ; define time axis increment\n\\n\
-    d23 = d23+d30              ; increment pump pulse delay\n\\n\
-    d24 = d24-d30              ; decrement delay after pump pulse\n\\n\
-\n\
-    next x                     ; end of sweep loop\n\\n\
-\n\
- scansdone(k)                  ; output of scans done\n\\n\
-next k                         ; end of scan accumulation loop\n\\n\
-\n\
-end exp8\n\
-\n\
-\n\
-;\n\
-; Five-pulse DEER with 2nd pump pulse after 3rd observer pulse\n\
-;\n\
-begin exp9 "5-pulse DEER 02" [INTG QUAD]\n\
-\n\
-for k=1 to n                   ; averaging loop\n\\n\
- totscans(n)\n\
-\n\
- d21 = d1                      ; initial tau1 value\n\\n\
-\n\
- d22 = d4                      ; reset initial pump pulse delay\n\\n\
- d23 = d1+d2                   ; reset initial delay of last observer pulse\n\\n\
- d23 = d24-d22                 ; adjust delay of last observer pulse \n\\n\
-\n\
- d24 = d5                      ; delay for the 2nd pump pulse\n\\n\
- d25 = d2-d5                   ; delay between 2nd pump pulse and echo\n\\n\
-\n\
- dx = sx*d30                   ; set x axis (inverted acquisition)\n\\n\
- dx = dx-d30                   ;\n\
-     \n\
- sweep x=1 to sx               ; sweep loop\n\
-\n\
-    shot i=1 to h              ; accumulation loop\n\\n\
-      p0 [ph1]                 ; 1st observer pulse (pi/2) and phase program\n\\n\
-      d21                      ; tau1\n\\n\
-      p1 [ph2]                 ; 2nd observer pulse (pi) and phase program\n\\n\
-      d22                      ; pump pulse delay, initially deadtime\n\\n\
-      p2 [ph3]                 ; pump pulse (pi)\n\\n\
-      d23                      ; tau1+tau2-pump pulse delay\n\\n\
-      p1 [ph4]                 ; 3rd observer pulse (pi) and phase program\n\\n\
-      d24                      ; t' delay\n\\n\
-      p3 [ph3]                 ; second pump pulse (inverse sweep direction)\n\\n\
-      d25                      ; tau2\n\\n\
-      d0                       ; constant acquisition delay\n\\n\
-     acq [sg1]                 ; acquisition\n\\n\
-     next i                    ; end of accumulation loop\n\\n\
-\n\
- dx = dx-d30                   ; define time axis decrement\n\\n\
- d22 = d22+d30                 ; increment pump pulse delay\n\\n\
- d23 = d23-d30                 ; decrement delay after pump pulse\n\\n\
-\n\
- next x                        ; end of sweep loop\n\\n\
-\n\
- scansdone(k)                  ; output of scans done\n\\n\
-next k                         ; end of scan accumulation loop\n\\n\
-\n\
+
+\n\
+
+\n\
+;
+\n\
+; Four-pulse DEER
+\n\
+;
+\n\
+begin exp7 "4-pulse DEER" [INTG QUAD]
+\n\
+
+\n\
+;for k=1 to n                  ; averaging loop
+\n\\n\
+ ;totscans(n)
+\n\
+
+\n\
+for y=1 to sy                  ; averaging loop
+ for separate aquisition of each trace
+\n\\n\
+
+\n\
+ d13 = d4                      ; initial pump pulse delay
+\n\\n\
+ d21 = d1                      ; initial tau1 value
+\n\\n\
+
+\n\
+   for j=1 to m                ; tau1 averaging loop for suppression of nuclear modulations
+\n\\n\
+
+\n\
+      d23 = d13                ; reset initial pump pulse delay
+\n\\n\
+      d24 = d21+d2             ; reset initial delay of last observer pulse
+\n\\n\
+      d24 = d24-d23            ; adjust delay of last observer pulse 
+\n\\n\
+     
+\n\
+      sweep x=1 to sx          ; sweep loop
+\n\\n\
+
+\n\
+        shot i=1 to h          ; accumulation loop
+\n\\n\
+          p0 [ph1]             ; 1st observer pulse (pi/2) and phase program
+\n\\n\
+          d21                  ; tau1
+\n\\n\
+          p1 [ph2]             ; 2nd observer pulse (pi) and phase program
+\n\\n\
+          d23                  ; pump pulse delay, initially deadtime
+\n\\n\
+          p2 [ph4]             ; pump pulse (pi)
+\n\\n\
+          d24                  ; tau1+tau2-d4
+\n\\n\
+          p1 [ph3]             ; 3rd observer pulse (pi) and phase program
+\n\\n\
+          d2                   ; tau2
+\n\\n\
+          d0                   ; constant acquisition delay
+\n\\n\
+          acq [sg1]            ; acquisition
+\n\\n\
+        next i                 ; end of accumulation loop
+\n\\n\
+
+\n\
+       dx = dx+d30             ; define time axis increment
+\n\\n\
+       d23 = d23+d30           ; increment pump pulse delay
+\n\\n\
+       d24 = d24-d30           ; decrement delay after pump pulse
+\n\\n\
+
+\n\
+      next x                   ; end of sweep loop
+\n\\n\
+
+\n\
+     d21 = d21+d31             ; increment tau1 for nucl. mod. averaging
+\n\\n\
+     d13 = d13+d31             ; pump pulse delay must be incremented, too
+\n\\n\
+
+\n\
+   next j                      ; end of nucl. mod. averaging loop
+\n\\n\
+
+\n\
+next y
+\n\
+
+\n\
+ ;scansdone(k)                  ; output of scans done
+\n\\n\
+;next k                         ; end of scan accumulation loop
+\n\\n\
+
+\n\
+end exp7
+\n\
+
+\n\
+
+\n\
+;
+\n\
+; Five-pulse DEER with 2nd pump pulse before 2nd observer pulse
+\n\\n\
+;
+\n\
+begin exp8 "5-pulse DEER 01" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\
+ totscans(n)
+\n\
+
+\n\
+  d13 = d4                     ; initial pump pulse delay
+\n\\n\
+  d21 = d1-d5                  ; delay between 2nd pump pulse and 2nd observer pulse
+\n\\n\
+  d21 = d21-p3                 ; subtract second pump pulse length from delay
+\n\\n\
+  d22 = d5+p3                  ; set delay after the second pump pulse
+\n\\n\
+
+\n\
+  d23 = d13                    ; reset initial pump pulse delay
+\n\\n\
+  d24 = d1+d2                  ; reset initial delay of last observer pulse
+\n\\n\
+  d24 = d24-d23                ; adjust inital delay of last observer pulse 
+\n\\n\
+     
+\n\
+  sweep x=1 to sx              ; sweep loop
+\n\\n\
+
+\n\
+     shot i=1 to h             ; accumulation loop
+\n\\n\
+       p0 [ph1]                ; 1st observer pulse (pi/2) and phase program
+\n\\n\
+       d21                     ; delay before additional pump pulse (tau1-d5)
+\n\\n\
+       p3 [ph3]                ; additional pump pulse
+\n\\n\
+       d22                     ; d5
+\n\\n\
+       p1 [ph2]                ; 2nd observer pulse (pi) and phase program
+\n\\n\
+       d23                     ; pump pulse delay, initially deadtime
+\n\\n\
+       p2 [ph3]                ; pump pulse (pi)
+\n\\n\
+       d24                     ; tau1+tau2-pump pulse delay
+\n\\n\
+       p1 [ph4]                ; 3rd observer pulse (pi) and phase program
+\n\\n\
+       d2                      ; tau2
+\n\\n\
+       d0                      ; constant acquisition delay
+\n\\n\
+       acq [sg1]               ; acquisition
+\n\\n\
+     next i                    ; end of accumulation loop
+\n\\n\
+
+\n\
+    dx = dx+d30                ; define time axis increment
+\n\\n\
+    d23 = d23+d30              ; increment pump pulse delay
+\n\\n\
+    d24 = d24-d30              ; decrement delay after pump pulse
+\n\\n\
+
+\n\
+    next x                     ; end of sweep loop
+\n\\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\\n\
+next k                         ; end of scan accumulation loop
+\n\\n\
+
+\n\
+end exp8
+\n\
+
+\n\
+
+\n\
+;
+\n\
+; Five-pulse DEER with 2nd pump pulse after 3rd observer pulse
+\n\
+;
+\n\
+begin exp9 "5-pulse DEER 02" [INTG QUAD]
+\n\
+
+\n\
+for k=1 to n                   ; averaging loop
+\n\\n\
+ totscans(n)
+\n\
+
+\n\
+ d21 = d1                      ; initial tau1 value
+\n\\n\
+
+\n\
+ d22 = d4                      ; reset initial pump pulse delay
+\n\\n\
+ d23 = d1+d2                   ; reset initial delay of last observer pulse
+\n\\n\
+ d23 = d24-d22                 ; adjust delay of last observer pulse 
+\n\\n\
+
+\n\
+ d24 = d5                      ; delay for the 2nd pump pulse
+\n\\n\
+ d25 = d2-d5                   ; delay between 2nd pump pulse and echo
+\n\\n\
+
+\n\
+ dx = sx*d30                   ; set x axis (inverted acquisition)
+\n\\n\
+ dx = dx-d30                   ;
+\n\
+     
+\n\
+ sweep x=1 to sx               ; sweep loop
+\n\
+
+\n\
+    shot i=1 to h              ; accumulation loop
+\n\\n\
+      p0 [ph1]                 ; 1st observer pulse (pi/2) and phase program
+\n\\n\
+      d21                      ; tau1
+\n\\n\
+      p1 [ph2]                 ; 2nd observer pulse (pi) and phase program
+\n\\n\
+      d22                      ; pump pulse delay, initially deadtime
+\n\\n\
+      p2 [ph3]                 ; pump pulse (pi)
+\n\\n\
+      d23                      ; tau1+tau2-pump pulse delay
+\n\\n\
+      p1 [ph4]                 ; 3rd observer pulse (pi) and phase program
+\n\\n\
+      d24                      ; t' delay
+\n\\n\
+      p3 [ph3]                 ; second pump pulse (inverse sweep direction)
+\n\\n\
+      d25                      ; tau2
+\n\\n\
+      d0                       ; constant acquisition delay
+\n\\n\
+     acq [sg1]                 ; acquisition
+\n\\n\
+     next i                    ; end of accumulation loop
+\n\\n\
+
+\n\
+ dx = dx-d30                   ; define time axis decrement
+\n\\n\
+ d22 = d22+d30                 ; increment pump pulse delay
+\n\\n\
+ d23 = d23-d30                 ; decrement delay after pump pulse
+\n\\n\
+
+\n\
+ next x                        ; end of sweep loop
+\n\\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\\n\
+next k                         ; end of scan accumulation loop
+\n\\n\
+
+\n\
 end exp9\n\
-\n\
-;\n\\n\
-; Seven-pulse DEER (J. Phys. Chem. Lett. 6, 4331 (2015))\n\
-;\n\\n\
-begin exp10 "7-pulse DEER" [INTG QUAD]\n\
+
 \n\
-for k=1 to n                   ; averaging loop\n\\n\
- totscans(n)\n\
-\n\
-  dx = d1+d2                   ; define x axis (t = tau1 + tau2 + tau3 - |t1| - |t2| -|t3|)\n\\n\
-  dx = dx+d3                   ;\n\\n\
-  dx = dx-d4                   ;\n\\n\
-  dx = dx-d5                   ;\n\\n\
-  dx = dx-d6                   ;\n\\n\
+;
+\n\\n\
+; Seven-pulse DEER (J. Phys. Chem. Lett. 6, 4331 (2015))
 \n\
-  d20 = 0                      ; initial delay of the observer sequence (incremented to avoid negative pulse displacements)\n\\n\
-  d21 = d1                     ; set initial tau1 delay\n\\n\
-\n\
-  d22 = d4                     ; set initial 1st pump pulse delay\n\\n\
-  d23 = d1+d2                  ; set initial delay of 3rd observer pulse\n\\n\
-  d23 = d23-d22                ; adjust delay of 3rd observer pulse\n\\n\
-\n\
-  d24 = d5                     ; set initial 2nd pump pulse delay\n\\n\
-  d25 = d2+d3                  ; set initial 3rd pump pulse delay\n\\n\
-  d25 = d25-d24                ; adjust 3rd pump pulse delay  \n\\n\
-  d26 = d6+p2                  ; set delay between 3rd pump pulse and last observer pulse\n\\n\
-  d25 = d25-d26                ; adjust 3rd pump pulse delay\n\\n\
-\n\
-  d27 = d3                     ; set final delay before echo acquisition\n\\n\
-\n\
-   sweep x=1 to sx             ; sweep loop\n\\n\
-\n\
-     shot i=1 to h             ; accumulation loop\n\\n\
-       d20                     ; delay of the observer sequence (to avoid negative pulse displacements)\n\\n\
-       p0 [ph1]                ; 1st observer pulse (pi/2) and phase program\n\\n\
-       d21                     ; tau1\n\\n\
-       p1 [ph2]                ; 2nd observer pulse (pi) and phase program\n\\n\
-       d22                     ; pump pulse delay T1\n\\n\
-       p2 [ph3]                ; 1st pump pulse (pi)\n\\n\
-       d23                     ; tau1+tau2-T1\n\\n\
-       p1 [ph4]                ; 3rd observer pulse (pi) and phase program\n\\n\
-       d24                     ; pump pulse delay T2\n\\n\
-       p2 [ph3]                ; 2nd pump pulse (pi)\n\\n\
-       d25                     ; tau2+tau3-T2-T3\n\\n\
-       p2 [ph3]                ; 3rd pump pulse (pi)\n\\n\
-       d26                     ; pump pulse delay T3\n\\n\
-       p1 [ph5]                ; 4th observer pulse (pi) and phase program\n\\n\
-       d27                     ; tau3\n\\n\
-       d0                      ; constant acquisition delay\n\\n\
-     acq [sg1]                 ; acquisition\n\\n\\n\
-     next i                    ; end of accumulation loop\n\\n\
-\n\
-    dx = dx-d30                ; define time axis decrement (1st)\n\\n\
-    d20 = d20+d30              ; increment observer pulse sequence delay\n\\n\
-    d22 = d22+d30              ; increment 1st pump pulse delay\n\\n\
-    d23 = d23-d30              ; decrement delay after 1st pump pulse\n\\n\
-\n\
-    dx = dx-d30                ; define time axis decrement (2nd)\n\\n\
-    d25 = d25-d30              ; decrement 3rd pump pulse delay\n\\n\
-    d26 = d26+d30              ; increment delay after 3rd pump pulse\n\\n\
-\n\
-   next x                      ; end of sweep loop\n\\n\
-\n\
- scansdone(k)                  ; output of scans done\n\\n\
-next k                         ; end of scan accumulation loop\n\\n\
-\n\
+;
+\n\\n\
+begin exp10 "7-pulse DEER" [INTG QUAD]
+\n\
+\n\
+for k=1 to n                   ; averaging loop
+\n\\n\
+ totscans(n)
+\n\
+
+\n\
+  dx = d1+d2                   ; define x axis (t = tau1 + tau2 + tau3 - |t1| - |t2| -|t3|)
+\n\\n\
+  dx = dx+d3                   ;
+\n\\n\
+  dx = dx-d4                   ;
+\n\\n\
+  dx = dx-d5                   ;
+\n\\n\
+  dx = dx-d6                   ;
+\n\\n\
+\n\
+  d20 = 0                      ; initial delay of the observer sequence (incremented to avoid negative pulse displacements)
+\n\\n\
+  d21 = d1                     ; set initial tau1 delay
+\n\\n\
+
+\n\
+  d22 = d4                     ; set initial 1st pump pulse delay
+\n\\n\
+  d23 = d1+d2                  ; set initial delay of 3rd observer pulse
+\n\\n\
+  d23 = d23-d22                ; adjust delay of 3rd observer pulse
+\n\\n\
+
+\n\
+  d24 = d5                     ; set initial 2nd pump pulse delay
+\n\\n\
+  d25 = d2+d3                  ; set initial 3rd pump pulse delay
+\n\\n\
+  d25 = d25-d24                ; adjust 3rd pump pulse delay  
+\n\\n\
+  d26 = d6+p2                  ; set delay between 3rd pump pulse and last observer pulse
+\n\\n\
+  d25 = d25-d26                ; adjust 3rd pump pulse delay
+\n\\n\
+
+\n\
+  d27 = d3                     ; set final delay before echo acquisition
+\n\\n\
+
+\n\
+   sweep x=1 to sx             ; sweep loop
+\n\\n\
+
+\n\
+     shot i=1 to h             ; accumulation loop
+\n\\n\
+       d20                     ; delay of the observer sequence (to avoid negative pulse displacements)
+\n\\n\
+       p0 [ph1]                ; 1st observer pulse (pi/2) and phase program
+\n\\n\
+       d21                     ; tau1
+\n\\n\
+       p1 [ph2]                ; 2nd observer pulse (pi) and phase program
+\n\\n\
+       d22                     ; pump pulse delay T1
+\n\\n\
+       p2 [ph3]                ; 1st pump pulse (pi)
+\n\\n\
+       d23                     ; tau1+tau2-T1
+\n\\n\
+       p1 [ph4]                ; 3rd observer pulse (pi) and phase program
+\n\\n\
+       d24                     ; pump pulse delay T2
+\n\\n\
+       p2 [ph3]                ; 2nd pump pulse (pi)
+\n\\n\
+       d25                     ; tau2+tau3-T2-T3
+\n\\n\
+       p2 [ph3]                ; 3rd pump pulse (pi)
+\n\\n\
+       d26                     ; pump pulse delay T3
+\n\\n\
+       p1 [ph5]                ; 4th observer pulse (pi) and phase program
+\n\\n\
+       d27                     ; tau3
+\n\\n\
+       d0                      ; constant acquisition delay
+\n\\n\
+     acq [sg1]                 ; acquisition\n\
+\n\\n\
+     next i                    ; end of accumulation loop
+\n\\n\
+
+\n\
+    dx = dx-d30                ; define time axis decrement (1st)
+\n\\n\
+    d20 = d20+d30              ; increment observer pulse sequence delay
+\n\\n\
+    d22 = d22+d30              ; increment 1st pump pulse delay
+\n\\n\
+    d23 = d23-d30              ; decrement delay after 1st pump pulse
+\n\\n\
+
+\n\
+    dx = dx-d30                ; define time axis decrement (2nd)
+\n\\n\
+    d25 = d25-d30              ; decrement 3rd pump pulse delay
+\n\\n\
+    d26 = d26+d30              ; increment delay after 3rd pump pulse
+\n\\n\
+
+\n\
+   next x                      ; end of sweep loop
+\n\\n\
+
+\n\
+ scansdone(k)                  ; output of scans done
+\n\\n\
+next k                         ; end of scan accumulation loop
+\n\\n\
+
+\n\
 end exp10\n\
 \n\
 \n
