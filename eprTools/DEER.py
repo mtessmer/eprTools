@@ -37,6 +37,7 @@ class DeerExp:
         self.t0 = None
         self.user_zt = False
         self.do_zero_time = kwargs.get('do_zero_time', True)
+        self.zt_fit_order = kwargs.get('zt_fit_order', 3)
         self.do_Vscale = kwargs.get('do_Vscale', True)
 
         # Fit results
@@ -280,7 +281,7 @@ class DeerExp:
         """
         Sets t=0 where 0th moment of a sliding window is closest to 0
         """
-        self.A0, self.t0 = fit_zero_time(self.raw_time, self.raw_real, return_params=True)
+        self.A0, self.t0 = fit_zero_time(self.raw_time, self.raw_real, order=self.zt_fit_order, return_params=True)
 
         # Correct t0 and A0
         self.time = self.raw_time - self.t0
