@@ -332,7 +332,7 @@ def opt_phase(V, return_params=False):
     else:
         return np.squeeze(V)
 
-def fit_zero_time(raw_time, raw_real, return_params=False, return_fit=False):
+def fit_zero_time(raw_time, raw_real, order=3, return_params=False, return_fit=False):
     """
     Obtain the zero time and amplitude by fitting the first part of the trace to a 5th order polynomial
 
@@ -349,8 +349,8 @@ def fit_zero_time(raw_time, raw_real, return_params=False, return_fit=False):
     idxmax = np.argmax(raw_real)
     idxmax = np.maximum(idxmax, 10)
 
-    # Fit data surrounding approximate zero-time to 5th order polynomial
-    fit = np.polyfit(raw_time[:2 * idxmax], raw_real[: 2 * idxmax], 7)
+    # Fit data surrounding approximate zero-time to polynomial
+    fit = np.polyfit(raw_time[:2 * idxmax], raw_real[: 2 * idxmax], 3)
 
     # Interpolate to find t0
     dense_time = np.linspace(raw_time[0], raw_time[2 * idxmax], 256)
